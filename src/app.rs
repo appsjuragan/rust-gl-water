@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use glam::Vec3;
+
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -17,6 +17,7 @@ use crate::input::{InputManager, InteractionMode};
 use crate::physics::PhysicsEngine;
 use crate::renderer::Renderer;
 use crate::water::Water;
+use crate::ui::UiRenderer;
 
 /// Application configuration
 pub struct AppConfig {
@@ -44,6 +45,7 @@ struct GfxState {
     size: PhysicalSize<u32>,
     water: Water,
     renderer: Renderer,
+    ui: UiRenderer,
 }
 
 impl GfxState {
@@ -103,6 +105,7 @@ impl GfxState {
 
         let water = Water::new(&device);
         let renderer = Renderer::new(&device, &queue, surface_format, size.width, size.height);
+        let ui = UiRenderer::new(&device, surface_format);
 
         Self {
             surface,
@@ -112,6 +115,7 @@ impl GfxState {
             size,
             water,
             renderer,
+            ui,
         }
     }
 
@@ -138,6 +142,9 @@ pub struct Application {
     time: f32,
     initialized: bool,
     paused: bool,
+    frame_count: u32,
+    accum_time: f32,
+    current_fps: i32,
 }
 
 impl Application {
@@ -153,6 +160,9 @@ impl Application {
             time: 0.0,
             initialized: false,
             paused: false,
+            frame_count: 0,
+            accum_time: 0.0,
+            current_fps: 60,
         }
     }
 
@@ -163,6 +173,15 @@ impl Application {
         }
 
         self.time += dt;
+
+        // FPS tracking
+        self.frame_count += 1;
+        self.accum_time += dt;
+        if self.accum_time >= 1.0 {
+            self.current_fps = self.frame_count as i32;
+            self.frame_count = 0;
+            self.accum_time -= 1.0;
+        }
 
         let gfx = match &mut self.gfx {
             Some(g) => g,
@@ -251,6 +270,9 @@ impl Application {
             self.time,
         );
 
+        // Update FPS UI
+        gfx.ui.update(&gfx.queue, self.current_fps);
+
         let mut encoder = gfx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
@@ -260,6 +282,25 @@ impl Application {
 
         // Render main scene
         gfx.renderer.render(&gfx.device, &mut encoder, &view, &gfx.water);
+
+        // Render UI
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("UI Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            gfx.ui.render(&mut pass);
+        }
 
         gfx.queue.submit(Some(encoder.finish()));
         output.present();
@@ -407,7 +448,7 @@ impl ApplicationHandler for Application {
             }
             
             WindowEvent::CursorMoved { position, .. } => {
-                if let Some(gfx) = &self.gfx {
+                if self.gfx.is_some() {
                     let view_proj_inv = self.camera.view_projection_matrix().inverse();
                     self.input.on_mouse_move(
                         position.x as f32,
@@ -461,6 +502,11 @@ impl ApplicationHandler for Application {
                                 }
                                 "g" | "G" => {
                                     self.physics.gravity_enabled = !self.physics.gravity_enabled;
+                                }
+                                "p" | "P" => {
+                                    if let Some(gfx) = &mut self.gfx {
+                                        gfx.ui.show_fps = !gfx.ui.show_fps;
+                                    }
                                 }
                                 _ => {}
                             }

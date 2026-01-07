@@ -1,6 +1,7 @@
 //! Renderer module - handles scene rendering with water, caustics, and pool
 
-use glam::{Mat4, Vec3};
+
+use glam::Vec3;
 use wgpu::util::DeviceExt;
 
 use crate::camera::{Camera, CameraUniform};

@@ -5,6 +5,7 @@
 
 mod app;
 mod water;
+mod ui;
 mod renderer;
 mod physics;
 mod input;
