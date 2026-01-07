@@ -1,0 +1,11 @@
+[target.x86_64-pc-windows-gnu]
+linker = "D:/projects/mingw64/bin/gcc.exe"
+ar = "D:/projects/mingw64/bin/ar.exe"
+
+[env]
+PATH = "D:/projects/mingw64/bin;${PATH}"
+
+[build]
+# Use MSVC by default on Windows for better compatibility
+# Uncomment below to use MinGW instead
+# target = "x86_64-pc-windows-gnu"

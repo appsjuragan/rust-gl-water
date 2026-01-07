@@ -1,0 +1,33 @@
+[package]
+name = "rust-gl-water"
+version = "0.1.0"
+edition = "2021"
+description = "A WebGL2 Water simulation ported to Rust using wgpu"
+license = "MIT"
+
+[dependencies]
+# Graphics
+wgpu = "24.0"
+winit = "0.30"
+pollster = "0.4"
+bytemuck = { version = "1.18", features = ["derive"] }
+
+# Math
+glam = { version = "0.29", features = ["bytemuck"] }
+
+# Image loading
+image = "0.25"
+
+# Logging
+env_logger = "0.11"
+log = "0.4"
+
+# Async
+futures = "0.3"
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+embed-resource = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
