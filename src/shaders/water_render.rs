@@ -86,11 +86,14 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
     let hit = origin + ray * t_final;
     
     if (is_shape) {{
-        // Glass-like refraction through the object
+        // Material-dependent refraction through the object
         let shape_type = uniforms.shape_type;
         let radius = uniforms.sphere_radius;
         let center = uniforms.sphere_center.xyz;
         let p = hit - center;
+        
+        // Get material properties
+        let mat = get_material_props(uniforms.texture_type);
         
         // Calculate entry normal using SDF gradient
         let e = 0.001;
@@ -99,21 +102,25 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         let dz = get_shape_dist(p + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(p - vec3<f32>(0.0,0.0,e), shape_type, radius);
         let normal = normalize(vec3<f32>(dx, dy, dz));
         
-        // Fresnel effect
-        let fresnel = 0.1 + 0.9 * pow(1.0 - max(0.0, dot(-ray, normal)), 3.0);
+        // Fresnel effect with material-dependent specularity
+        let base_fresnel = mat.specularity * 0.15;
+        let fresnel = base_fresnel + (1.0 - base_fresnel) * pow(1.0 - max(0.0, dot(-ray, normal)), 2.5 + mat.roughness * 2.0);
         
-        // Reflection off glass surface
+        // Reflection off surface
         let reflect_dir = reflect(ray, normal);
         
-        // Refraction into glass (water IOR 1.333, glass IOR ~1.5)
-        let ior_water_to_glass = 1.333 / 1.5;
-        let refract_dir_in = refract(ray, normal, ior_water_to_glass);
+        // Refraction into material (water IOR -> material IOR)
+        let ior_water_to_mat = IOR_WATER / mat.ior;
+        let refract_dir_in = refract(ray, normal, ior_water_to_mat);
         
-        var refract_color = vec3<f32>(0.0);
+        var refract_color = mat.base_color * 0.3; // Default for opaque/TIR
         var reflect_color = vec3<f32>(0.0);
         
-        if (length(refract_dir_in) > 0.001) {{
-            // Find exit point through glass
+        // Check if material is transparent enough for refraction
+        let is_transparent = mat.absorption.x < 0.5;
+        
+        if (length(refract_dir_in) > 0.001 && is_transparent) {{
+            // Find exit point through material
             let local_origin = hit - center;
             let t_exit = get_exit_dist_shape(local_origin, refract_dir_in, shape_type, radius);
             
@@ -127,9 +134,9 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
                 let dz2 = get_shape_dist(local_exit + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,0.0,e), shape_type, radius);
                 let exit_normal = normalize(vec3<f32>(dx2, dy2, dz2));
                 
-                // Refract out of glass back into water
-                let ior_glass_to_water = 1.5 / 1.333;
-                let refract_dir_out = refract(refract_dir_in, -exit_normal, ior_glass_to_water);
+                // Refract out of material back into water
+                let ior_mat_to_water = mat.ior / IOR_WATER;
+                let refract_dir_out = refract(refract_dir_in, -exit_normal, ior_mat_to_water);
                 
                 if (length(refract_dir_out) > 0.001) {{
                     // Trace ray to background (pool floor/walls)
@@ -151,16 +158,19 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
                     let tile_color = textureSample(tile_texture, tile_sampler, tile_coord).rgb;
                     refract_color = get_wall_color(bg_hit, uniforms, water_info, caustic, tile_color);
                     
-                    // Attenuate based on distance through glass (slight tint)
-                    refract_color *= exp(-vec3<f32>(0.15, 0.08, 0.02) * t_exit * 3.0);
+                    // Attenuate based on distance and material absorption
+                    refract_color *= exp(-mat.absorption * t_exit * 6.0);
+                    refract_color *= mat.base_color;
                 }} else {{
-                    // Total internal reflection - use a subtle underwater color
-                    refract_color = vec3<f32>(0.3, 0.5, 0.6);
+                    // Total internal reflection
+                    refract_color = mat.base_color * 0.4;
                 }}
             }}
-        }} else {{
-            // Total internal reflection at entry
-            refract_color = vec3<f32>(0.3, 0.5, 0.6);
+        }} else if (!is_transparent) {{
+            // For opaque materials (wood), use diffuse lighting
+            let diffuse = max(0.0, dot(normal, light));
+            let ambient = 0.35;
+            refract_color = mat.base_color * (ambient + diffuse * 0.65) * uniforms.light_color.rgb;
         }}
         
         // Calculate reflection color (trace reflected ray)
@@ -180,11 +190,17 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         let refl_tile_color = textureSample(tile_texture, tile_sampler, refl_tile_coord).rgb;
         reflect_color = get_wall_color(refl_hit, uniforms, refl_water_info, refl_caustic, refl_tile_color);
         
-        // Specular highlight
-        let spec = pow(max(0.0, dot(reflect_dir, light)), 64.0);
+        // Tint reflection for metallic materials
+        if (uniforms.texture_type == 2) {{ // Steel
+            reflect_color *= mat.base_color;
+        }}
+        
+        // Specular highlight with material-dependent intensity
+        let spec_power = 30.0 + (1.0 - mat.roughness) * 150.0;
+        let spec = pow(max(0.0, dot(reflect_dir, light)), spec_power) * mat.specularity;
         
         // Mix refraction and reflection based on Fresnel
-        color = mix(refract_color, reflect_color, fresnel) + uniforms.light_color.rgb * spec * 0.3;
+        color = mix(refract_color, reflect_color, fresnel) + uniforms.light_color.rgb * spec * 0.25;
         
     }} else if ray.y < 0.0 {{
         // Looking down - hit floor/walls
@@ -223,7 +239,7 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
             let sky_uv = ray.xz * 0.5 + 0.5;
             color = textureSample(sky_texture, sky_sampler, sky_uv).rgb;
             // Sun highlight
-            color += vec3<f32>(pow(max(0.0, dot(light, ray)), 5000.0)) * vec3<f32>(10.0, 8.0, 6.0);
+            color += vec3<f32>(pow(max(0.0, dot(light, ray)), 1000.0)) * vec3<f32>(8.0, 6.0, 4.0);
         }}
     }}
     

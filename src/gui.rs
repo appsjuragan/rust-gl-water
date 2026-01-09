@@ -13,10 +13,19 @@ pub enum Shape {
     Cube,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Texture {
+    Glass,
+    Wood,
+    Steel,
+    Ice,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub gravity: f32,
     pub shape: Shape,
+    pub texture: Texture,
     pub light_color: [u8; 3],
 }
 
@@ -25,6 +34,7 @@ impl Default for AppConfig {
         Self {
             gravity: 1.0,
             shape: Shape::Sphere,
+            texture: Texture::Glass,
             light_color: [255, 255, 255],
         }
     }

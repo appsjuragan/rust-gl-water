@@ -122,74 +122,83 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {{
     let normal = normalize(in.world_normal);
     let view_dir = normalize(in.world_pos - in.view_pos); // Vector from eye to point
     
-    // Fresnel
-    let fresnel = 0.2 + 0.8 * pow(1.0 - max(0.0, dot(-view_dir, normal)), 2.0);
+    // Get material properties based on texture type
+    let mat = get_material_props(uniforms.texture_type);
+    
+    // Fresnel with material-dependent specularity
+    let base_fresnel = mat.specularity * 0.2;
+    let fresnel = base_fresnel + (1.0 - base_fresnel) * pow(1.0 - max(0.0, dot(-view_dir, normal)), 2.0 + mat.roughness * 3.0);
     
     // Reflection
     let reflect_dir = reflect(view_dir, normal);
-    let reflect_color = get_surface_ray_color(in.world_pos, reflect_dir, ABOVE_WATER_COLOR);
+    var reflect_color = get_surface_ray_color(in.world_pos, reflect_dir, ABOVE_WATER_COLOR);
     
-    // Refraction (Air -> Water)
-    let refract_dir_in = refract(view_dir, normal, 1.0 / 1.333);
+    // Tint reflection with material color for metallic materials
+    if (uniforms.texture_type == 2) {{ // Steel
+        reflect_color *= mat.base_color;
+    }}
     
-    var refract_color = vec3<f32>(0.0);
+    // Refraction (Air -> Material)
+    let ior_ratio_in = IOR_AIR / mat.ior;
+    let refract_dir_in = refract(view_dir, normal, ior_ratio_in);
     
-    // Trace through sphere
-    // Ray: P + t * D. Sphere: |X - C| = R
-    // We are at P on surface. Center is C.
-    // L = C - P
-    // tca = dot(L, D)
-    // d2 = dot(L, L) - tca * tca
-    // thc = sqrt(R^2 - d2)
-    // t0 = tca - thc; t1 = tca + thc.
-    // We want the far intersection t1 (since we are on surface, t0 is ~0)
+    var refract_color = mat.base_color * 0.3; // Base color for TIR or opaque materials
     
-    let L = uniforms.sphere_center.xyz - in.world_pos;
     let radius = uniforms.sphere_radius;
     let shape_type = uniforms.shape_type;
     
-    // We want exit distance.
-    // Ray start: in.world_pos. Ray dir: refract_dir_in.
-    // Center is uniforms.sphere_center.xyz.
-    let local_origin = in.world_pos - uniforms.sphere_center.xyz;
-    let t_exit = get_exit_dist_shape(local_origin, refract_dir_in, shape_type, radius);
+    // For highly absorbing materials (wood), skip complex refraction
+    let is_transparent = mat.absorption.x < 0.5;
     
-    if (t_exit > 0.001) {{
-        let exit_point = in.world_pos + refract_dir_in * t_exit;
+    if (length(refract_dir_in) > 0.001 && is_transparent) {{
+        let local_origin = in.world_pos - uniforms.sphere_center.xyz;
+        let t_exit = get_exit_dist_shape(local_origin, refract_dir_in, shape_type, radius);
         
-        let e = 0.001;
-        let local_exit = exit_point - uniforms.sphere_center.xyz;
-        let dx = get_shape_dist(local_exit + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(e,0.0,0.0), shape_type, radius);
-        let dy = get_shape_dist(local_exit + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,e,0.0), shape_type, radius);
-        let dz = get_shape_dist(local_exit + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,0.0,e), shape_type, radius);
-        let exit_normal = normalize(vec3<f32>(dx, dy, dz)); 
-        
-        let water_level = textureSample(water_texture, water_sampler, exit_point.xz / (uniforms.pool_size * 2.0) + 0.5).r;
-        
-        var ior_ratio = 1.333 / 1.0; // Water -> Air
-        if (exit_point.y < water_level) {{
-            ior_ratio = 1.333 / 1.333; // Water -> Water (no refraction)
+        if (t_exit > 0.001) {{
+            let exit_point = in.world_pos + refract_dir_in * t_exit;
+            
+            let e = 0.001;
+            let local_exit = exit_point - uniforms.sphere_center.xyz;
+            let dx = get_shape_dist(local_exit + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(e,0.0,0.0), shape_type, radius);
+            let dy = get_shape_dist(local_exit + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,e,0.0), shape_type, radius);
+            let dz = get_shape_dist(local_exit + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,0.0,e), shape_type, radius);
+            let exit_normal = normalize(vec3<f32>(dx, dy, dz)); 
+            
+            let water_level = textureSample(water_texture, water_sampler, exit_point.xz / (uniforms.pool_size * 2.0) + 0.5).r;
+            
+            var ior_ratio_out = mat.ior / IOR_AIR; // Material -> Air
+            if (exit_point.y < water_level) {{
+                ior_ratio_out = mat.ior / IOR_WATER; // Material -> Water
+            }}
+            
+            let refract_dir_out = refract(refract_dir_in, -exit_normal, ior_ratio_out); 
+            
+            if (length(refract_dir_out) > 0.0) {{
+                refract_color = get_surface_ray_color(exit_point, refract_dir_out, ABOVE_WATER_COLOR);
+                
+                // Attenuate color based on distance and material absorption
+                refract_color *= exp(-mat.absorption * t_exit * 8.0);
+                // Tint with base color
+                refract_color *= mat.base_color;
+            }} else {{
+                // Total Internal Reflection
+                refract_color = reflect_color * mat.base_color;
+            }}
         }}
-        
-        let refract_dir_out = refract(refract_dir_in, -exit_normal, ior_ratio); 
-        
-        if (length(refract_dir_out) > 0.0) {{
-             refract_color = get_surface_ray_color(exit_point, refract_dir_out, ABOVE_WATER_COLOR);
-             
-             // Attenuate color based on distance traveled through water sphere
-             refract_color *= exp(-vec3<f32>(0.1, 0.05, 0.02) * t_exit * 4.0);
-        }} else {{
-            // Total Internal Reflection inside sphere
-            refract_color = vec3<f32>(0.0, 0.1, 0.2); 
-        }}
+    }} else if (!is_transparent) {{
+        // For opaque materials (wood), use a simple diffuse model
+        let diffuse = max(0.0, dot(normal, light_dir));
+        let ambient = 0.3;
+        refract_color = mat.base_color * (ambient + diffuse * 0.7) * uniforms.light_color.rgb;
     }}
     
-    // Specular highlight
-    let spec = pow(max(dot(reflect_dir, light_dir), 0.0), 100.0);
+    // Specular highlight with material-dependent intensity
+    let spec_power = 20.0 + (1.0 - mat.roughness) * 200.0;
+    let spec = pow(max(dot(reflect_dir, light_dir), 0.0), spec_power) * mat.specularity;
     
-    let final_color = mix(refract_color, reflect_color, fresnel) + vec3<f32>(spec);
+    let final_color = mix(refract_color, reflect_color, fresnel) + uniforms.light_color.rgb * spec;
     
-    return vec4<f32>(final_color, 1.0); // Translucency handled by shader blending if needed, but here we output opaque color
+    return vec4<f32>(final_color, 1.0);
 }}
 "#
     )

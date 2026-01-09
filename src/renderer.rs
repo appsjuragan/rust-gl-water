@@ -23,7 +23,7 @@ pub struct CommonUniforms {
     pub sphere_radius: f32,
     pub time: f32,
     pub shape_type: i32,
-    pub _padding: [f32; 1],
+    pub texture_type: i32,  // 0=Glass, 1=Wood, 2=Steel, 3=Ice
     pub light_color: [f32; 4],
 }
 
@@ -38,7 +38,7 @@ impl Default for CommonUniforms {
             sphere_radius: 0.25,
             time: 0.0,
             shape_type: 0,
-            _padding: [0.0; 1],
+            texture_type: 0,
             light_color: [1.0, 1.0, 1.0, 1.0],
         }
     }
@@ -660,10 +660,20 @@ impl Renderer {
     }
 
     pub fn update_object_mesh(&mut self, device: &wgpu::Device, shape: &str) {
-         let (vertices, indices) = match shape {
-            "Cube" => Self::create_cube_mesh(),
+        let (mut vertices, indices) = match shape {
+            "Cube" => {
+                let (mut v, i) = Self::create_cube_mesh();
+                // Normalize cube to fit in unit sphere (scale by 1/sqrt(3))
+                let scale = 1.0 / 3.0f32.sqrt();
+                for vert in &mut v {
+                    vert.position[0] *= scale;
+                    vert.position[1] *= scale;
+                    vert.position[2] *= scale;
+                }
+                (v, i)
+            },
             "Torus" => Self::create_torus_mesh(0.7, 0.3, 32, 16),
-            "Tetrahedron" => Self::create_tetrahedron_mesh(1.6),
+            "Tetrahedron" => Self::create_tetrahedron_mesh(1.0 / 3.0f32.sqrt()),
             _ => Self::create_sphere_mesh(1.0, 32, 32), // Default to sphere
         };
 
@@ -1000,6 +1010,7 @@ impl Renderer {
         sphere_radius: f32,
         time: f32,
         shape_type: i32,
+        texture_type: i32,
     ) {
         self.camera_uniform.update(camera);
         queue.write_buffer(
@@ -1014,10 +1025,9 @@ impl Renderer {
         self.common_uniform.light_dir = [self.light_dir.x, self.light_dir.y, self.light_dir.z, 0.0];
         self.common_uniform.sphere_center = [sphere_center.x, sphere_center.y, sphere_center.z, 1.0];
         self.common_uniform.sphere_radius = sphere_radius;
-        self.common_uniform.sphere_radius = sphere_radius;
         self.common_uniform.time = time;
         self.common_uniform.shape_type = shape_type;
-        // light_color is updated separately or just passed in
+        self.common_uniform.texture_type = texture_type;
 
         self.sphere_center = sphere_center;
         self.sphere_radius = sphere_radius;

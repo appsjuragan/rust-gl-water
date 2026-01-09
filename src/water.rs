@@ -68,6 +68,8 @@ struct SphereVolumeUniforms {
     radius: f32,
     strength: f32,
     pool_size: [f32; 2],
+    shape_type: i32,
+    _padding: [f32; 3],
 }
 
 impl Water {
@@ -153,6 +155,8 @@ impl Water {
                 radius: 0.25,
                 strength: 0.04,
                 pool_size: [pool_width, pool_length],
+                shape_type: 0,
+                _padding: [0.0; 3],
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -461,6 +465,8 @@ impl Water {
         self.swap();
     }
 
+
+
     /// Move sphere through water (creates displacement)
     pub fn move_sphere(
         &mut self,
@@ -471,6 +477,7 @@ impl Water {
         new_center: Vec3,
         radius: f32,
         strength: f32,
+        shape_type: i32,
     ) {
         // Normalize coordinates
         let scale_x = self.pool_width / 2.0;
@@ -482,6 +489,8 @@ impl Water {
             radius,
             strength,
             pool_size: [self.pool_width, self.pool_length],
+            shape_type,
+            _padding: [0.0; 3],
         };
 
         queue.write_buffer(&self.sphere_uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));

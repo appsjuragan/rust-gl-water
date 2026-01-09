@@ -19,8 +19,54 @@ struct CommonUniforms {
     sphere_radius: f32,
     time: f32,
     shape_type: i32,
-    _padding: f32,
+    texture_type: i32,  // 0=Glass, 1=Wood, 2=Steel, 3=Ice
     light_color: vec4<f32>,
+}
+
+// Material properties struct
+struct MaterialProps {
+    ior: f32,           // Index of refraction
+    base_color: vec3<f32>,
+    absorption: vec3<f32>,
+    specularity: f32,
+    roughness: f32,
+}
+
+// Get material properties based on texture type
+fn get_material_props(texture_type: i32) -> MaterialProps {
+    var mat: MaterialProps;
+    
+    if (texture_type == 0) {
+        // Glass - clear, high IOR, high specularity
+        mat.ior = 1.5;
+        mat.base_color = vec3<f32>(0.95, 0.97, 1.0);
+        mat.absorption = vec3<f32>(0.02, 0.01, 0.005);
+        mat.specularity = 0.9;
+        mat.roughness = 0.05;
+    } else if (texture_type == 1) {
+        // Wood - warm brown, opaque-ish, low specularity
+        mat.ior = 1.45;
+        mat.base_color = vec3<f32>(0.6, 0.4, 0.25);
+        mat.absorption = vec3<f32>(0.8, 0.6, 0.4);
+        mat.specularity = 0.2;
+        mat.roughness = 0.6;
+    } else if (texture_type == 2) {
+        // Steel - metallic grey, highly reflective
+        mat.ior = 2.5;
+        mat.base_color = vec3<f32>(0.7, 0.72, 0.75);
+        mat.absorption = vec3<f32>(0.5, 0.5, 0.5);
+        mat.specularity = 0.95;
+        mat.roughness = 0.15;
+    } else {
+        // Ice - blue tint, similar to glass but colder
+        mat.ior = 1.31;
+        mat.base_color = vec3<f32>(0.85, 0.92, 1.0);
+        mat.absorption = vec3<f32>(0.01, 0.02, 0.08);
+        mat.specularity = 0.8;
+        mat.roughness = 0.1;
+    }
+    
+    return mat;
 }
 "#;
 
@@ -79,7 +125,7 @@ fn get_shape_dist(p: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
         // Mesh size 1.6 relative to unit sphere 1.0.
         return (max(abs(p.x+p.y)-p.z, abs(p.x-p.y)+p.z) - 1.0 * radius) / sqrt(3.0); 
     } else { // Cube
-        return sdBox(p, vec3<f32>(0.7 * radius));
+        return sdBox(p, vec3<f32>(0.577 * radius));
     }
 }
 

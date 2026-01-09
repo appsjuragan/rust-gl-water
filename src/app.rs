@@ -20,7 +20,7 @@ use crate::renderer::Renderer;
 use crate::water::Water;
 
 use crate::ui::UiRenderer;
-use crate::gui::{Gui, AppConfig as RunConfig, Shape};
+use crate::gui::{Gui, AppConfig as RunConfig, Shape, Texture};
 
 #[derive(PartialEq)]
 enum AppState {
@@ -255,6 +255,19 @@ impl Application {
         gfx.water.update_normals(&gfx.device, &gfx.queue, &mut encoder);
 
         // Sphere water interaction
+        let shape_type = match self.run_config.shape {
+            Shape::Sphere => 0,
+            Shape::Torus => 1,
+            Shape::Tetrahedron => 2,
+            Shape::Cube => 3,
+        };
+
+        // Calculate dynamic strength based on movement speed (displacement)
+        // Higher speed = higher ripples (approximating Kinetic Energy impact)
+        let displacement = (self.physics.center - self.physics.old_center).length();
+        let speed_boost = 1.0 + displacement * 50.0; // Strong boost for fast movement
+        let dynamic_strength = self.physics.impact_strength * speed_boost;
+
         gfx.water.move_sphere(
             &gfx.device,
             &gfx.queue,
@@ -262,7 +275,8 @@ impl Application {
             self.physics.old_center,
             self.physics.center,
             self.physics.radius,
-            self.physics.impact_strength,
+            dynamic_strength, // Use dynamic strength
+            shape_type,
         );
 
         gfx.queue.submit(Some(encoder.finish()));
@@ -302,11 +316,27 @@ impl Application {
                          ui.add(egui::Slider::new(&mut config.gravity, 0.25..=5.0).step_by(0.25));
                          
                          ui.add_space(10.0);
-                         ui.label("Shape:");
-                         ui.radio_value(&mut config.shape, Shape::Sphere, "Sphere");
-                         ui.radio_value(&mut config.shape, Shape::Torus, "Torus");
-                         ui.radio_value(&mut config.shape, Shape::Tetrahedron, "Tetrahedron");
-                         ui.radio_value(&mut config.shape, Shape::Cube, "Cube");
+                         
+                         // Shape and Texture side by side
+                         ui.horizontal(|ui| {
+                             ui.vertical(|ui| {
+                                 ui.label("Shape:");
+                                 ui.radio_value(&mut config.shape, Shape::Sphere, "Sphere");
+                                 ui.radio_value(&mut config.shape, Shape::Torus, "Torus");
+                                 ui.radio_value(&mut config.shape, Shape::Tetrahedron, "Tetrahedron");
+                                 ui.radio_value(&mut config.shape, Shape::Cube, "Cube");
+                             });
+                             
+                             ui.add_space(40.0);
+                             
+                             ui.vertical(|ui| {
+                                 ui.label("Textures:");
+                                 ui.radio_value(&mut config.texture, Texture::Glass, "Glass");
+                                 ui.radio_value(&mut config.texture, Texture::Wood, "Wood");
+                                 ui.radio_value(&mut config.texture, Texture::Steel, "Steel");
+                                 ui.radio_value(&mut config.texture, Texture::Ice, "Ice");
+                             });
+                         });
                          
                          ui.add_space(10.0);
                          ui.label("Light Color:");
@@ -342,6 +372,11 @@ impl Application {
                 {
                     let config = &self.run_config;
                     self.physics.gravity = Vec3::new(0.0, -9.81 * config.gravity, 0.0);
+                    
+                    // Reset object position and velocity
+                    self.physics.center = Vec3::new(0.0, 2.0, 0.0);
+                    self.physics.old_center = self.physics.center;
+                    self.physics.velocity = Vec3::ZERO;
                     
                     let shape_name = match config.shape {
                         Shape::Sphere => "Sphere",
@@ -393,6 +428,13 @@ impl Application {
             Shape::Tetrahedron => 2,
             Shape::Cube => 3,
         };
+        
+        let texture_type = match self.run_config.texture {
+            Texture::Glass => 0,
+            Texture::Wood => 1,
+            Texture::Steel => 2,
+            Texture::Ice => 3,
+        };
 
         gfx.renderer.update_uniforms(
             &gfx.queue,
@@ -401,6 +443,7 @@ impl Application {
             self.physics.radius,
             self.time,
             shape_type,
+            texture_type,
         );
 
         // Update FPS UI
@@ -664,6 +707,11 @@ impl ApplicationHandler for Application {
                                     if let Some(gfx) = &mut self.gfx {
                                         gfx.ui.show_fps = !gfx.ui.show_fps;
                                     }
+                                }
+                                "o" | "O" => {
+                                    self.state = AppState::Configuring;
+                                    // Make sure cursor is visible
+                                    self.window.as_ref().unwrap().set_cursor_visible(true); 
                                 }
                                 _ => {}
                             }
