@@ -145,19 +145,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {{
     // We want the far intersection t1 (since we are on surface, t0 is ~0)
     
     let L = uniforms.sphere_center.xyz - in.world_pos;
-    let tca = dot(L, refract_dir_in);
-    let d2 = dot(L, L) - tca * tca;
-    let radius2 = uniforms.sphere_radius * uniforms.sphere_radius;
+    let radius = uniforms.sphere_radius;
+    let shape_type = uniforms.shape_type;
     
-    if (d2 <= radius2) {{
-        let thc = sqrt(radius2 - d2);
-        let t_exit = tca + thc;
+    // We want exit distance.
+    // Ray start: in.world_pos. Ray dir: refract_dir_in.
+    // Center is uniforms.sphere_center.xyz.
+    let local_origin = in.world_pos - uniforms.sphere_center.xyz;
+    let t_exit = get_exit_dist_shape(local_origin, refract_dir_in, shape_type, radius);
+    
+    if (t_exit > 0.001) {{
         let exit_point = in.world_pos + refract_dir_in * t_exit;
-        let exit_normal = normalize(exit_point - uniforms.sphere_center.xyz);
         
-        // Refraction (Water -> Outside)
-        // Check if we are exiting into water or air?
-        // Simple approximation: check height
+        let e = 0.001;
+        let local_exit = exit_point - uniforms.sphere_center.xyz;
+        let dx = get_shape_dist(local_exit + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(e,0.0,0.0), shape_type, radius);
+        let dy = get_shape_dist(local_exit + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,e,0.0), shape_type, radius);
+        let dz = get_shape_dist(local_exit + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,0.0,e), shape_type, radius);
+        let exit_normal = normalize(vec3<f32>(dx, dy, dz)); 
+        
         let water_level = textureSample(water_texture, water_sampler, exit_point.xz / (uniforms.pool_size * 2.0) + 0.5).r;
         
         var ior_ratio = 1.333 / 1.0; // Water -> Air
@@ -165,7 +171,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {{
             ior_ratio = 1.333 / 1.333; // Water -> Water (no refraction)
         }}
         
-        let refract_dir_out = refract(refract_dir_in, -exit_normal, ior_ratio);
+        let refract_dir_out = refract(refract_dir_in, -exit_normal, ior_ratio); 
         
         if (length(refract_dir_out) > 0.0) {{
              refract_color = get_surface_ray_color(exit_point, refract_dir_out, ABOVE_WATER_COLOR);

@@ -7,7 +7,7 @@ license = "MIT"
 
 [dependencies]
 # Graphics
-wgpu = "24.0"
+wgpu = "22.1"
 winit = "0.30"
 pollster = "0.4"
 bytemuck = { version = "1.18", features = ["derive"] }
@@ -21,6 +21,9 @@ image = "0.25"
 # Logging
 env_logger = "0.11"
 log = "0.4"
+egui = "0.29"
+egui-wgpu = "0.29"
+egui-winit = "0.29"
 
 # Async
 futures = "0.3"

@@ -7,18 +7,24 @@ A port of the [WebGL2 Water](https://github.com/idootop/webgl2-water) simulation
 ## Features
 
 - 🌊 **Real-time Water Simulation**: GPU-accelerated wave equation simulation
+- 🎨 **Configuration Window**: Set simulation parameters (gravity, shape, colors) before launch
 - ✨ **Caustic Lighting**: Dynamic light refraction patterns on pool floor
-- 🎯 **Interactive**: Click/drag to create ripples
-- 🦆 **Floating Objects**: Physics-based buoyancy simulation
-- 🎮 **Orbit Camera**: Drag to rotate view around the pool
+- 🎯 **Interactive**: Click/drag to create ripples or move objects
+- 🦆 **Shape Support**: Choose between Sphere, Torus, Tetrahedron, and Cube
+- 🎮 **Orbit & Zoom Camera**: Drag to rotate, scroll to zoom
 
 ## Controls
 
 | Action | Effect |
 |--------|--------|
 | **Left Click + Drag on Water** | Create ripples |
-| **Left Click + Drag on Empty Space** | Orbit camera |
-| **Space** | Add random drop |
+| **Left Click + Drag on Object** | Move object (Sphere/Torus/etc) |
+| **Left Click + Drag on Wall/Background** | Orbit camera |
+| **Mouse Scroll** | Zoom in/out |
+| **Space** | Pause/Resume simulation |
+| **'G' Key** | Toggle gravity |
+| **'L' Key** | Update light direction to match camera |
+| **'P' Key** | Toggle FPS display |
 | **Escape** | Exit |
 
 ## Building

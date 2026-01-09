@@ -11,6 +11,7 @@ mod physics;
 mod input;
 mod camera;
 mod shaders;
+mod gui;
 
 use app::Application;
 use winit::event_loop::EventLoop;

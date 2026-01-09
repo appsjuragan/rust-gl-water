@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 use std::time::Instant;
+use glam::Vec3;
 
 
 use winit::{
@@ -17,13 +18,20 @@ use crate::input::{InputManager, InteractionMode};
 use crate::physics::PhysicsEngine;
 use crate::renderer::Renderer;
 use crate::water::Water;
+
 use crate::ui::UiRenderer;
+use crate::gui::{Gui, AppConfig as RunConfig, Shape};
+
+#[derive(PartialEq)]
+enum AppState {
+    Configuring,
+    Running,
+}
 
 /// Application configuration
 pub struct AppConfig {
     pub container_height: f32,
     pub water_fill_ratio: f32,
-    pub camera_distance: f32,
 }
 
 impl Default for AppConfig {
@@ -31,7 +39,6 @@ impl Default for AppConfig {
         Self {
             container_height: 1.4,
             water_fill_ratio: 0.7,
-            camera_distance: 4.0,
         }
     }
 }
@@ -45,19 +52,21 @@ struct GfxState {
     size: PhysicalSize<u32>,
     water: Water,
     renderer: Renderer,
+
     ui: UiRenderer,
+    gui: Gui,
 }
 
 impl GfxState {
     async fn new(window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
 
-        let surface = instance.create_surface(window).expect("Failed to create surface");
+        let surface = instance.create_surface(window.clone()).expect("Failed to create surface");
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -106,6 +115,7 @@ impl GfxState {
         let water = Water::new(&device);
         let renderer = Renderer::new(&device, &queue, surface_format, size.width, size.height);
         let ui = UiRenderer::new(&device, surface_format);
+        let gui = Gui::new(window.clone(), &device, surface_format);
 
         Self {
             surface,
@@ -116,6 +126,7 @@ impl GfxState {
             water,
             renderer,
             ui,
+            gui,
         }
     }
 
@@ -144,6 +155,8 @@ pub struct Application {
     paused: bool,
     frame_count: u32,
     accum_time: f32,
+    state: AppState,
+    run_config: RunConfig,
     current_fps: i32,
 }
 
@@ -162,7 +175,10 @@ impl Application {
             paused: false,
             frame_count: 0,
             accum_time: 0.0,
+
             current_fps: 60,
+            state: AppState::Configuring,
+            run_config: RunConfig::default(),
         }
     }
 
@@ -252,22 +268,139 @@ impl Application {
         gfx.queue.submit(Some(encoder.finish()));
     }
 
+
+
+
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let gfx = match &mut self.gfx {
             Some(g) => g,
             None => return Ok(()),
         };
 
+        // If configuring, draw GUI only (or overlay)
+        if self.state == AppState::Configuring {
+             let output = gfx.surface.get_current_texture()?;
+             let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+             
+             let mut encoder = gfx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("GUI Encoder"),
+            });
+            
+            let window = self.window.as_ref().unwrap();
+            let mut run_clicked = false;
+            let config = &mut self.run_config;
+
+            gfx.gui.render(&gfx.device, &gfx.queue, window, &mut encoder, &view, |ctx| {
+                egui::Window::new("Run Parameters")
+                    .resizable(false)
+                    .collapsible(false)
+                    .show(ctx, |ui| {
+                         ui.heading("Run Parameters");
+                         ui.add_space(10.0);
+                         
+                         ui.label("Gravity (g)");
+                         ui.add(egui::Slider::new(&mut config.gravity, 0.25..=5.0).step_by(0.25));
+                         
+                         ui.add_space(10.0);
+                         ui.label("Shape:");
+                         ui.radio_value(&mut config.shape, Shape::Sphere, "Sphere");
+                         ui.radio_value(&mut config.shape, Shape::Torus, "Torus");
+                         ui.radio_value(&mut config.shape, Shape::Tetrahedron, "Tetrahedron");
+                         ui.radio_value(&mut config.shape, Shape::Cube, "Cube");
+                         
+                         ui.add_space(10.0);
+                         ui.label("Light Color:");
+                         ui.horizontal(|ui| {
+                             ui.label("Red");
+                             ui.add(egui::Slider::new(&mut config.light_color[0], 1..=255));
+                         });
+                         ui.horizontal(|ui| {
+                             ui.label("Green");
+                             ui.add(egui::Slider::new(&mut config.light_color[1], 1..=255));
+                         });
+                         ui.horizontal(|ui| {
+                             ui.label("Blue");
+                             ui.add(egui::Slider::new(&mut config.light_color[2], 1..=255));
+                         });
+                         
+                         ui.add_space(20.0);
+                         ui.horizontal(|ui| {
+                             if ui.button("RESET").clicked() {
+                                 *config = RunConfig::default();
+                             }
+                             if ui.button("RUN").clicked() {
+                                 run_clicked = true;
+                             }
+                         });
+                    });
+            });
+            
+            if run_clicked {
+                self.state = AppState::Running;
+                
+                // Update Config Logic Inline
+                {
+                    let config = &self.run_config;
+                    self.physics.gravity = Vec3::new(0.0, -9.81 * config.gravity, 0.0);
+                    
+                    let shape_name = match config.shape {
+                        Shape::Sphere => "Sphere",
+                        Shape::Torus => "Torus",
+                        Shape::Tetrahedron => "Tetrahedron",
+                        Shape::Cube => "Cube",
+                    };
+                    gfx.renderer.update_object_mesh(&gfx.device, shape_name);
+                    
+                    let c = config.light_color;
+                     gfx.renderer.common_uniform.light_color = [
+                        c[0] as f32 / 255.0,
+                        c[1] as f32 / 255.0,
+                        c[2] as f32 / 255.0,
+                        1.0
+                    ];
+                }
+
+                // Initial Drops Logic Inline
+                {
+                    let mut encoder = gfx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Init Drops Encoder"),
+                    });
+            
+                    for i in 0..20 {
+                        let x = (rand_float() * 2.0 - 1.0) * 0.8;
+                        let z = (rand_float() * 2.0 - 1.0) * 0.8;
+                        let strength = if i % 2 == 0 { 0.01 } else { -0.01 };
+                        gfx.water.add_drop(&gfx.device, &gfx.queue, &mut encoder, x, z, 0.03, strength);
+                    }
+            
+                    gfx.queue.submit(Some(encoder.finish()));
+                }
+            }
+            
+            gfx.queue.submit(Some(encoder.finish()));
+            output.present();
+            
+            return Ok(());
+        }
+
         let output = gfx.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Update uniforms
+        let shape_type = match self.run_config.shape {
+            Shape::Sphere => 0,
+            Shape::Torus => 1,
+            Shape::Tetrahedron => 2,
+            Shape::Cube => 3,
+        };
+
         gfx.renderer.update_uniforms(
             &gfx.queue,
             &self.camera,
             self.physics.center,
             self.physics.radius,
             self.time,
+            shape_type,
         );
 
         // Update FPS UI
@@ -340,26 +473,7 @@ impl Application {
         self.update_pool_dimensions();
     }
 
-    fn init_water_drops(&mut self) {
-        let gfx = match &mut self.gfx {
-            Some(g) => g,
-            None => return,
-        };
 
-        // Add some initial ripples
-        let mut encoder = gfx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Init Drops Encoder"),
-        });
-
-        for i in 0..20 {
-            let x = (rand_float() * 2.0 - 1.0) * 0.8;
-            let z = (rand_float() * 2.0 - 1.0) * 0.8;
-            let strength = if i % 2 == 0 { 0.01 } else { -0.01 };
-            gfx.water.add_drop(&gfx.device, &gfx.queue, &mut encoder, x, z, 0.03, strength);
-        }
-
-        gfx.queue.submit(Some(encoder.finish()));
-    }
 }
 
 // Simple random number generator (for initial drops)
@@ -380,11 +494,13 @@ impl ApplicationHandler for Application {
 
         let window_attrs = Window::default_attributes()
             .with_title("Rust GL Water - Poolcore Demo")
-            .with_inner_size(PhysicalSize::new(1280, 720));
+            .with_inner_size(PhysicalSize::new(600, 600));
 
         let window = Arc::new(event_loop.create_window(window_attrs).expect("Failed to create window"));
         
         let gfx = pollster::block_on(GfxState::new(window.clone()));
+        
+        
         
         self.window = Some(window.clone());
         self.gfx = Some(gfx);
@@ -392,9 +508,9 @@ impl ApplicationHandler for Application {
         let size = window.inner_size();
         self.on_resize(size.width, size.height);
         
+        // Initial init for default settings
         if !self.initialized {
-            self.init_water_drops();
-            self.initialized = true;
+             // We don't init drops yet, wait for RUN
         }
         
         self.last_frame = Instant::now();
@@ -406,6 +522,18 @@ impl ApplicationHandler for Application {
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        // Handle GUI events first
+        if self.state == AppState::Configuring {
+            if let Some(gfx) = &mut self.gfx {
+                if gfx.gui.handle_event(self.window.as_ref().unwrap(), &event) {
+                    // If GUI consumed the event, skip game logic unless it's a resize/close
+                    if !matches!(event, WindowEvent::Resized(..) | WindowEvent::CloseRequested) {
+                        return;
+                    }
+                }
+            }
+        }
+        
         match event {
             WindowEvent::CloseRequested => {
                 log::info!("Close requested, exiting...");
@@ -448,6 +576,10 @@ impl ApplicationHandler for Application {
             }
             
             WindowEvent::CursorMoved { position, .. } => {
+                // Skip input if configuring
+                if self.state == AppState::Configuring {
+                    return;
+                }
                 if self.gfx.is_some() {
                     let view_proj_inv = self.camera.view_projection_matrix().inverse();
                     self.input.on_mouse_move(
@@ -459,6 +591,10 @@ impl ApplicationHandler for Application {
             }
             
             WindowEvent::MouseInput { state, button, .. } => {
+                // Skip input if configuring
+                if self.state == AppState::Configuring {
+                    return;
+                }
                 match (state, button) {
                     (ElementState::Pressed, MouseButton::Left) => {
                         let view_proj_inv = self.camera.view_projection_matrix().inverse();
@@ -481,8 +617,29 @@ impl ApplicationHandler for Application {
                     _ => {}
                 }
             }
+
+            WindowEvent::MouseWheel { delta, .. } => {
+                if self.state == AppState::Configuring {
+                    return;
+                }
+                let delta = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => y * 0.5,
+                    winit::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32 * 0.01,
+                };
+                self.camera.zoom(delta);
+            }
             
             WindowEvent::KeyboardInput { event, .. } => {
+                // in configuring, still allow allow esc to exit
+                if self.state == AppState::Configuring {
+                    if event.state == ElementState::Pressed {
+                         if let winit::keyboard::Key::Named(winit::keyboard::NamedKey::Escape) = event.logical_key {
+                             event_loop.exit();
+                         }
+                    }
+                    return;
+                }
+
                 if event.state == ElementState::Pressed {
                     use winit::keyboard::{Key, NamedKey};
                     match event.logical_key {

@@ -22,7 +22,9 @@ pub struct CommonUniforms {
     pub sphere_center: [f32; 4],
     pub sphere_radius: f32,
     pub time: f32,
-    pub _padding: [f32; 2],
+    pub shape_type: i32,
+    pub _padding: [f32; 1],
+    pub light_color: [f32; 4],
 }
 
 impl Default for CommonUniforms {
@@ -35,7 +37,9 @@ impl Default for CommonUniforms {
             sphere_center: [0.0, 0.0, 0.0, 1.0],
             sphere_radius: 0.25,
             time: 0.0,
-            _padding: [0.0; 2],
+            shape_type: 0,
+            _padding: [0.0; 1],
+            light_color: [1.0, 1.0, 1.0, 1.0],
         }
     }
 }
@@ -94,18 +98,16 @@ pub struct Renderer {
     camera_uniform_buffer: wgpu::Buffer,
     common_uniform_buffer: wgpu::Buffer,
     camera_uniform: CameraUniform,
-    common_uniform: CommonUniforms,
+    pub common_uniform: CommonUniforms,
 
     // Textures
-    tile_texture: wgpu::Texture,
+    _tile_texture: wgpu::Texture,
     tile_texture_view: wgpu::TextureView,
     tile_sampler: wgpu::Sampler,
-
-    sky_texture: wgpu::Texture,
+    _sky_texture: wgpu::Texture,
     sky_texture_view: wgpu::TextureView,
     sky_sampler: wgpu::Sampler,
-
-    caustic_texture: wgpu::Texture,
+    _caustic_texture: wgpu::Texture,
     caustic_texture_view: wgpu::TextureView,
     caustic_sampler: wgpu::Sampler,
 
@@ -382,13 +384,13 @@ impl Renderer {
             layout: Some(&water_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &water_shader_module,
-                entry_point: Some("vs_main"),
+                entry_point: "vs_main",
                 buffers: &[WaterVertex::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &water_shader_module,
-                entry_point: Some("fs_main"),
+                entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -434,13 +436,13 @@ impl Renderer {
             layout: Some(&pool_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &pool_shader_module,
-                entry_point: Some("vs_main"),
+                entry_point: "vs_main",
                 buffers: &[PoolVertex::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &pool_shader_module,
-                entry_point: Some("fs_main"),
+                entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: None,
@@ -487,13 +489,13 @@ impl Renderer {
             layout: Some(&caustics_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &caustics_shader_module,
-                entry_point: Some("vs_main"),
+                entry_point: "vs_main",
                 buffers: &[WaterVertex::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &caustics_shader_module,
-                entry_point: Some("fs_main"),
+                entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::Rgba16Float,
                     blend: Some(wgpu::BlendState {
@@ -541,13 +543,13 @@ impl Renderer {
             layout: Some(&sphere_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &sphere_shader_module,
-                entry_point: Some("vs_main"),
+                entry_point: "vs_main",
                 buffers: &[PoolVertex::desc()], // Reuse PoolVertex layout
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &sphere_shader_module,
-                entry_point: Some("fs_main"),
+                entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -620,13 +622,13 @@ impl Renderer {
             common_uniform_buffer,
             camera_uniform,
             common_uniform,
-            tile_texture,
+            _tile_texture: tile_texture,
             tile_texture_view,
             tile_sampler,
-            sky_texture,
+            _sky_texture: sky_texture,
             sky_texture_view,
             sky_sampler,
-            caustic_texture,
+            _caustic_texture: caustic_texture,
             caustic_texture_view,
             caustic_sampler,
             depth_texture,
@@ -655,6 +657,27 @@ impl Renderer {
             sphere_center: Vec3::ZERO,
             sphere_radius: 0.25,
         }
+    }
+
+    pub fn update_object_mesh(&mut self, device: &wgpu::Device, shape: &str) {
+         let (vertices, indices) = match shape {
+            "Cube" => Self::create_cube_mesh(),
+            "Torus" => Self::create_torus_mesh(0.7, 0.3, 32, 16),
+            "Tetrahedron" => Self::create_tetrahedron_mesh(1.6),
+            _ => Self::create_sphere_mesh(1.0, 32, 32), // Default to sphere
+        };
+
+        self.sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Object Vertex Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        self.sphere_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Object Index Buffer"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        self.sphere_index_count = indices.len() as u32;
     }
 
     fn create_default_texture(
@@ -865,6 +888,104 @@ impl Renderer {
         (vertices, indices)
     }
 
+
+    fn create_torus_mesh(radius: f32, tube_radius: f32, radial_segments: u32, tubular_segments: u32) -> (Vec<PoolVertex>, Vec<u32>) {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        for j in 0..=radial_segments {
+            for i in 0..=tubular_segments {
+                let u = i as f32 / tubular_segments as f32;
+                let v = j as f32 / radial_segments as f32;
+
+                let theta = u * std::f32::consts::PI * 2.0;
+                let phi = v * std::f32::consts::PI * 2.0;
+
+                let cos_theta = theta.cos();
+                let sin_theta = theta.sin();
+                let cos_phi = phi.cos();
+                let sin_phi = phi.sin();
+
+                let x = (radius + tube_radius * cos_phi) * cos_theta;
+                let y = tube_radius * sin_phi;
+                let z = (radius + tube_radius * cos_phi) * sin_theta;
+
+                let nx = cos_phi * cos_theta;
+                let ny = sin_phi;
+                let nz = cos_phi * sin_theta;
+
+                vertices.push(PoolVertex {
+                    position: [x, y, z],
+                    normal: [nx, ny, nz],
+                    uv: [u, v],
+                });
+            }
+        }
+
+        for j in 0..radial_segments {
+            for i in 0..tubular_segments {
+                let first = (j * (tubular_segments + 1)) + i;
+                let second = first + tubular_segments + 1;
+
+                indices.push(first);
+                indices.push(second);
+                indices.push(first + 1);
+
+                indices.push(second);
+                indices.push(second + 1);
+                indices.push(first + 1);
+            }
+        }
+
+        (vertices, indices)
+    }
+
+    fn create_tetrahedron_mesh(size: f32) -> (Vec<PoolVertex>, Vec<u32>) {
+         // Define vertices for a simple unit tetrahedron
+        let p0 = [ 1.0,  1.0,  1.0];
+        let p1 = [-1.0, -1.0,  1.0];
+        let p2 = [-1.0,  1.0, -1.0];
+        let p3 = [ 1.0, -1.0, -1.0];
+        
+        // Scale
+        let p0 = [p0[0]*size, p0[1]*size, p0[2]*size];
+        let p1 = [p1[0]*size, p1[1]*size, p1[2]*size];
+        let p2 = [p2[0]*size, p2[1]*size, p2[2]*size];
+        let p3 = [p3[0]*size, p3[1]*size, p3[2]*size];
+
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        
+        let faces = [
+            (p0, p2, p1),
+            (p0, p3, p2),
+            (p0, p1, p3),
+            (p1, p2, p3)
+        ];
+        
+        let uvs = [[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]];
+
+        let mut idx = 0;
+        for (a, b, c) in faces {
+             // Calculate normal
+             let v0 = glam::Vec3::from_array(a);
+             let v1 = glam::Vec3::from_array(b);
+             let v2 = glam::Vec3::from_array(c);
+             let normal = (v1 - v0).cross(v2 - v0).normalize().to_array();
+             
+             vertices.push(PoolVertex { position: a, normal, uv: uvs[0] });
+             vertices.push(PoolVertex { position: b, normal, uv: uvs[1] });
+             vertices.push(PoolVertex { position: c, normal, uv: uvs[2] });
+             
+             indices.push(idx);
+             indices.push(idx + 1);
+             indices.push(idx + 2);
+             idx += 3;
+        }
+
+        (vertices, indices)
+    }
+
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         let (depth_texture, depth_texture_view) = Self::create_depth_texture(device, width, height);
         self.depth_texture = depth_texture;
@@ -878,6 +999,7 @@ impl Renderer {
         sphere_center: Vec3,
         sphere_radius: f32,
         time: f32,
+        shape_type: i32,
     ) {
         self.camera_uniform.update(camera);
         queue.write_buffer(
@@ -892,7 +1014,10 @@ impl Renderer {
         self.common_uniform.light_dir = [self.light_dir.x, self.light_dir.y, self.light_dir.z, 0.0];
         self.common_uniform.sphere_center = [sphere_center.x, sphere_center.y, sphere_center.z, 1.0];
         self.common_uniform.sphere_radius = sphere_radius;
+        self.common_uniform.sphere_radius = sphere_radius;
         self.common_uniform.time = time;
+        self.common_uniform.shape_type = shape_type;
+        // light_color is updated separately or just passed in
 
         self.sphere_center = sphere_center;
         self.sphere_radius = sphere_radius;

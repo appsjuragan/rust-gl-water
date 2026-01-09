@@ -90,6 +90,11 @@ impl Camera {
         let visible_width = visible_height * self.aspect;
         (visible_width, visible_height)
     }
+
+    /// Zoom camera (change distance)
+    pub fn zoom(&mut self, delta: f32) {
+        self.distance = (self.distance - delta).clamp(1.0, 10.0);
+    }
 }
 
 /// Camera uniform data for shaders

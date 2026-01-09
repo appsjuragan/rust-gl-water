@@ -11,10 +11,10 @@ pub const WATER_TEXTURE_SIZE: u32 = 512;
 /// Water simulation using GPU ping-pong rendering
 pub struct Water {
     /// Primary render target
-    texture_a: wgpu::Texture,
+    _texture_a: wgpu::Texture,
     texture_a_view: wgpu::TextureView,
     /// Secondary render target (ping-pong)
-    texture_b: wgpu::Texture,
+    _texture_b: wgpu::Texture,
     texture_b_view: wgpu::TextureView,
     /// Currently active texture (0 = A, 1 = B)
     current: usize,
@@ -214,13 +214,13 @@ impl Water {
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: Some("vs_main"),
+                    entry_point: "vs_main",
                     buffers: &[],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs_main"),
+                    entry_point: "fs_main",
                     targets: &[Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Rgba16Float,
                         blend: None,
@@ -250,9 +250,9 @@ impl Water {
         let sphere_pipeline = create_pipeline(SPHERE_VOLUME_SHADER, "Sphere Pipeline");
 
         Self {
-            texture_a,
+            _texture_a: texture_a,
             texture_a_view,
-            texture_b,
+            _texture_b: texture_b,
             texture_b_view,
             current: 0,
             sampler,

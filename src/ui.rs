@@ -7,7 +7,6 @@ pub struct UiRenderer {
     vertex_buffer: wgpu::Buffer,
     pub show_fps: bool,
     fps_value: u32,
-    last_update: f32,
 }
 
 #[repr(C)]
@@ -128,7 +127,7 @@ impl UiRenderer {
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: Some("vs_main"),
+                entry_point: "vs_main",
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<UiVertex>() as wgpu::BufferAddress,
                     step_mode: wgpu::VertexStepMode::Vertex,
@@ -141,7 +140,7 @@ impl UiRenderer {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -200,7 +199,6 @@ impl UiRenderer {
             vertex_buffer,
             show_fps: true,
             fps_value: 0,
-            last_update: 0.0,
         }
     }
     

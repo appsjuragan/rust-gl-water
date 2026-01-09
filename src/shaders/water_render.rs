@@ -74,28 +74,38 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
     let t = intersect_cube(origin, ray, cube_min, cube_max);
     
     var t_final = t.y;
-    var is_sphere = false;
+    var is_shape = false;
     
-    let t_sphere = intersect_sphere(origin, ray, uniforms.sphere_center.xyz, uniforms.sphere_radius);
-    if (t_sphere > 0.0 && t_sphere < t_final) {{
-        t_final = t_sphere;
-        is_sphere = true;
+    // Check shape intersection
+    let t_shape = intersect_shape_any(origin, ray, uniforms.sphere_center.xyz, uniforms.sphere_radius, uniforms.shape_type);
+    if (t_shape > 0.0 && t_shape < t_final) {{
+        t_final = t_shape;
+        is_shape = true;
     }}
     
     let hit = origin + ray * t_final;
     
-    if (is_sphere) {{
-        let normal = normalize(hit - uniforms.sphere_center.xyz);
+    if (is_shape) {{
+        // Calculate normal using SDF gradient
+        let shape_type = uniforms.shape_type;
+        let radius = uniforms.sphere_radius;
+        let p = hit - uniforms.sphere_center.xyz;
+        let e = 0.001;
+        let dx = get_shape_dist(p + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(p - vec3<f32>(e,0.0,0.0), shape_type, radius);
+        let dy = get_shape_dist(p + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(p - vec3<f32>(0.0,e,0.0), shape_type, radius);
+        let dz = get_shape_dist(p + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(p - vec3<f32>(0.0,0.0,e), shape_type, radius);
+        let normal = normalize(vec3<f32>(dx, dy, dz));
+
         let diffuse = max(0.0, dot(normal, light));
         let ambient = 0.4;
-        let sphere_color = vec3<f32>(0.6, 0.7, 0.8); // Light blue-grey sphere
+        let object_color = vec3<f32>(0.6, 0.7, 0.8); // Light blue-grey object
         
         // Simple Phong
         let view = normalize(origin - hit);
         let halfway = normalize(light + view);
         let spec = pow(max(0.0, dot(normal, halfway)), 32.0);
         
-        color = sphere_color * (ambient + diffuse) + vec3<f32>(1.0) * spec * 0.5;
+        color = object_color * (ambient + diffuse * uniforms.light_color.rgb) + uniforms.light_color.rgb * spec * 0.5;
         
     }} else if ray.y < 0.0 {{
         // Looking down - hit floor/walls

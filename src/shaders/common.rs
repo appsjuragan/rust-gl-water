@@ -18,7 +18,9 @@ struct CommonUniforms {
     sphere_center: vec4<f32>,
     sphere_radius: f32,
     time: f32,
-    _padding: vec2<f32>,
+    shape_type: i32,
+    _padding: f32,
+    light_color: vec4<f32>,
 }
 "#;
 
@@ -34,7 +36,84 @@ fn intersect_cube(origin: vec3<f32>, ray: vec3<f32>, cube_min: vec3<f32>, cube_m
     return vec2<f32>(t_near, t_far);
 }
 
-// Intersect ray with sphere
+// SDF Functions
+fn sdSphere(p: vec3<f32>, r: f32) -> f32 {
+    return length(p) - r;
+}
+
+fn sdBox(p: vec3<f32>, b: vec3<f32>) -> f32 {
+    let q = abs(p) - b;
+    return length(max(q, vec3<f32>(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
+fn sdTorus(p: vec3<f32>, param: vec2<f32>) -> f32 {
+    let t = vec2<f32>(param.x, param.y);
+    let q = vec2<f32>(length(p.xz) - t.x, p.y);
+    return length(q) - t.y;
+}
+
+fn sdTetrahedron(p: vec3<f32>, r: f32) -> f32 {
+    // scale down to unit
+    let q = p / r;
+    var md = max(abs(q.x + q.y) - q.z, abs(q.x - q.y) + q.z);
+    md = max(md, abs(q.x) + abs(q.y) + abs(q.z) - 1.0 /* roughly */); 
+    // Simplified octahedron/tetrahedron approximation
+    return (length(q) - 0.7) * r; // Very rough proxy if exact formula is complex
+    // Better Tetrahedron (IQ)
+    // return (max(abs(q.x+q.y)-q.z, abs(q.x-q.y)+q.z) - 1.0)/sqrt(3.0) * r;
+}
+
+fn get_shape_dist(p: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
+    if (shape_type == 0) { // Sphere
+        return sdSphere(p, radius);
+    } else if (shape_type == 1) { // Torus
+        // Outer radius approx 0.8 * radius, tube 0.3 * radius
+        // The mesh was scaled by 'radius' in shader, so p is in world space unscaled?
+        // No, p is usually relative to center.
+        // The vertex shader transformed unit sphere by radius.
+        // Mesh generation: Torus(0.7, 0.3).
+        // So dimensions are roughly 1.0 unit.
+        // We scale by radius.
+        return sdTorus(p, vec2<f32>(0.7 * radius, 0.3 * radius));
+    } else if (shape_type == 2) { // Tetrahedron
+        // Mesh size 1.6 relative to unit sphere 1.0.
+        return (max(abs(p.x+p.y)-p.z, abs(p.x-p.y)+p.z) - 1.0 * radius) / sqrt(3.0); 
+    } else { // Cube
+        return sdBox(p, vec3<f32>(0.7 * radius));
+    }
+}
+
+// Raymarch to find exit interval or shadow
+// Returns distance through object (0.0 if Miss)
+fn intersect_shape_sdf(origin: vec3<f32>, ray: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
+    // Analytic sphere check first to optimize
+    let r_bound = radius * 1.5; 
+    let t_sphere = intersect_sphere(origin, ray, vec3<f32>(0.0), r_bound);
+    if (t_sphere < 0.0) { return 0.0; }
+
+    // March
+    var t = 0.0;
+    // Special case: we might be inside. 
+    // For shadows (origin outside), start at sphere hit.
+    // For refraction (origin on surface), start at 0.
+    
+    // Check if we are inside
+    let d0 = get_shape_dist(origin, shape_type, radius);
+    var inside = false;
+    if (d0 < 0.0) { inside = true; }
+    
+    // Conservative marching
+    var dist = 0.0;
+    if (d0 > 0.0) { 
+        // Outside, march to entry
+        // Not implemented fully for generic shadow yet, rely on sphere proxy for perf
+        // or simple march
+    }
+    
+    return 0.0; // Placeholder
+}
+
+// Intersect ray with sphere (Analytic, needed for optimization)
 fn intersect_sphere(origin: vec3<f32>, ray: vec3<f32>, sphere_center: vec3<f32>, sphere_radius: f32) -> f32 {
     let to_sphere = origin - sphere_center;
     let a = dot(ray, ray);
@@ -47,42 +126,104 @@ fn intersect_sphere(origin: vec3<f32>, ray: vec3<f32>, sphere_center: vec3<f32>,
             return t;
         }
     }
-    return 1.0e6;
+    return -1.0;
 }
 
-// Get sphere color with caustics
-fn get_sphere_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f32>, caustic_sample: vec4<f32>) -> vec3<f32> {
-    var color = vec3<f32>(0.5);
-    
-    let pool_size = uniforms.pool_size;
-    let sphere_center = uniforms.sphere_center.xyz;
-    let sphere_radius = uniforms.sphere_radius;
-    let pool_height = uniforms.pool_height;
-    let light = uniforms.light_dir.xyz;
-    
-    color *= 1.0 - 0.9 / pow((pool_size.x + sphere_radius - abs(point.x)) / sphere_radius, 3.0);
-    color *= 1.0 - 0.9 / pow((pool_size.y + sphere_radius - abs(point.z)) / sphere_radius, 3.0);
-    color *= 1.0 - 0.9 / pow((point.y + pool_height + sphere_radius) / sphere_radius, 3.0);
-    
-    let sphere_normal = (point - sphere_center) / sphere_radius;
-    let refracted_light = refract(-light, vec3<f32>(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);
-    var diffuse = max(0.0, dot(-refracted_light, sphere_normal)) * 0.5;
-    
-    if point.y < water_info.r {
-        diffuse *= caustic_sample.r * 4.0;
+// Get distance to exit point of the shape, assuming we are ON the surface or inside
+fn get_exit_dist_shape(origin: vec3<f32>, dir: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
+    if (shape_type == 0) {
+        // Sphere analytic
+        // origin is relative to center 
+        let a = dot(dir, dir);
+        let b = 2.0 * dot(origin, dir);
+        let c = dot(origin, origin) - radius * radius;
+        // We expect one positive root since we are on surface/inside
+        let discriminant = b*b - 4.0*a*c;
+        if (discriminant >= 0.0) {
+            return (-b + sqrt(discriminant)) / (2.0 * a);
+        }
+        return 0.0;
     }
-    color += vec3<f32>(diffuse);
+
+    // Raymarch for others
+    var t = 0.05 * radius; // Step away from surface
+    for (var i = 0; i < 32; i++) {
+        let p = origin + dir * t;
+        let d = get_shape_dist(p, shape_type, radius);
+        // If d > 0, we are outside. Since we started inside/on surface (approx), d becomes + when we exit.
+        if (d > 0.001) {
+            return t; 
+        }
+        // d is negative inside. We want to reach boundary (0).
+        // Distance to boundary is abs(d).
+        t += abs(d);
+        if (t > radius * 3.0) { return 0.0; } // escaped bounds
+    }
+    return t;
+}
+
+// Shadow check (0.0 = occluded, 1.0 = lit)
+fn get_shadow(origin: vec3<f32>, light_dir: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
+    // Analytic sphere shadow for all shapes for now (soft shadow proxy)
+    // Or raymarch... Raymarching shadows is expensive.
+    // Let's use Sphere proxy for shadows to keep perf high, visual difference is minor for caustics usually.
+    // User complaint was "Refraction, reflection still a sphere". Reflection on surface is handled by normal (which comes from mesh).
+    // Refraction is handled by ray tracing through object.
     
-    return color;
+    // But for "ghost" on the floor, that's get_wall_color shadow.
+    // Let's try to improve it slightly.
+    
+    return 1.0; // Placeholder, handled in get_wall_color
+}
+
+// Get sphere color with caustics (Renamed contextually, but kept name for compat if not changing call sites)
+// Actually we will update call sites.
+fn get_object_color_refraction(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f32>, caustic_sample: vec4<f32>) -> vec3<f32> {
+    
+    // ... logic ...
+    return vec3<f32>(0.0);
+}
+
+// Re-implement old get_sphere_color but with shape awareness?
+// No, get_sphere_color was for rendering the sphere itself? No, sphere shader renders sphere.
+// get_sphere_color was used to render WHAT?
+// Checking common.rs content... "fn get_sphere_color...".
+// Used by ... ? sphere shader uses "get_surface_ray_color".
+// "get_sphere_color" seems unused in `sphere.rs`.
+// It might be used by `water_render.rs` ?? To render sphere seen through water?
+// Yes, `water_render.rs` raycasts and hits sphere.
+
+fn intersect_shape_any(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, radius: f32, shape_type: i32) -> f32 {
+    // Check bounding sphere first
+    let t_sphere = intersect_sphere(origin, ray, center, radius * 1.5);
+    if (t_sphere < 0.0) { return -1.0; }
+    
+    // If shape is sphere, return t_sphere
+    if (shape_type == 0) { return t_sphere; }
+    
+    // Otherwise raymarch from t_sphere (entry point of bounding sphere)
+    var t = max(0.0, t_sphere - 0.1); 
+    // transform origin/ray to local space of shape
+    let local_origin = origin - center;
+    
+    for (var i=0; i<32; i++) {
+        let p = local_origin + ray * t;
+        let d = get_shape_dist(p, shape_type, radius);
+        if (d < 0.001) { return t; }
+        t += d;
+        if (t > radius * 3.0) { return -1.0; }
+    }
+    return -1.0;
 }
 
 // Get wall/floor color with caustics
 fn get_wall_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f32>, caustic_sample: vec4<f32>, tile_color: vec3<f32>) -> vec3<f32> {
-    var scale = 0.5;
+    var scale = vec3<f32>(0.5);
     
     let pool_size = uniforms.pool_size;
     let sphere_center = uniforms.sphere_center.xyz;
     let sphere_radius = uniforms.sphere_radius;
+    let shape_type = uniforms.shape_type;
     let pool_height = uniforms.pool_height;
     let wall_height = uniforms.wall_height;
     let light = uniforms.light_dir.xyz;
@@ -99,21 +240,65 @@ fn get_wall_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f
     }
     
     scale /= length(point);
-    scale *= 1.0 - 0.9 / pow(length(point - sphere_center) / sphere_radius, 4.0);
+    // scale *= 1.0 - 0.9 / pow(length(point - sphere_center) / sphere_radius, 4.0);
+    // The above line is a fake AO/Shadow blob. Replace with shape aware.
+    // Approximate distance from shape center:
+    let dist_to_shape = length(point - sphere_center);
+    if (dist_to_shape < sphere_radius * 1.5) {
+         scale *= 0.2; // Hard shadow proxy
+    }
     
     let refracted_light = -refract(-light, vec3<f32>(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);
     let diffuse = max(0.0, dot(refracted_light, normal));
+    let lit_diffuse = diffuse * uniforms.light_color.rgb;
     
     if point.y < water_info.r {
-        scale += diffuse * caustic_sample.r * 2.0 * caustic_sample.g;
+        scale += lit_diffuse * caustic_sample.r * 2.0 * caustic_sample.g;
     } else {
+        // Shadow calc for above water
         let cube_min = vec3<f32>(-pool_size.x, -pool_height, -pool_size.y);
         let cube_max = vec3<f32>(pool_size.x, wall_height, pool_size.y);
         let t = intersect_cube(point, refracted_light, cube_min, cube_max);
-        let shadow = 1.0 / (1.0 + exp(-200.0 / (1.0 + 10.0 * (t.y - t.x)) * (point.y + refracted_light.y * t.y - wall_height)));
-        scale += diffuse * shadow * 0.5;
+        
+        // Check real shadow
+        // Intersect ray from point towards light with shape
+        let hit_shape = intersect_shape_any(point, normalize(light), sphere_center, sphere_radius, shape_type);
+        var shadow = 1.0;
+        if (hit_shape > 0.0) { shadow = 0.0; }
+        
+        scale += lit_diffuse * shadow * 0.5;
     }
     
     return wall_color * scale;
+}
+
+// Get sphere color (seen through water or directly)
+// Used by water_render.rs to render the object when ray hits it
+fn get_sphere_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f32>, caustic_sample: vec4<f32>) -> vec3<f32> {
+    // This function is for coloring the object surface.
+    // Simple Lit Color
+    let sphere_center = uniforms.sphere_center.xyz;
+    let sphere_radius = uniforms.sphere_radius;
+    let light = uniforms.light_dir.xyz;
+    
+    // Normal? We don't have normal passed in 'point' only p.
+    // For sphere normal is (p-c)/r. For others we need gradient of SDF.
+    let local_p = point - sphere_center;
+    // SDF Gradient for normal
+    let e = 0.001;
+    let shape_type = uniforms.shape_type;
+    let dx = get_shape_dist(local_p + vec3<f32>(e,0.0,0.0), shape_type, sphere_radius) - get_shape_dist(local_p - vec3<f32>(e,0.0,0.0), shape_type, sphere_radius);
+    let dy = get_shape_dist(local_p + vec3<f32>(0.0,e,0.0), shape_type, sphere_radius) - get_shape_dist(local_p - vec3<f32>(0.0,e,0.0), shape_type, sphere_radius);
+    let dz = get_shape_dist(local_p + vec3<f32>(0.0,0.0,e), shape_type, sphere_radius) - get_shape_dist(local_p - vec3<f32>(0.0,0.0,e), shape_type, sphere_radius);
+    let normal = normalize(vec3<f32>(dx, dy, dz));
+    
+    let refracted_light = refract(-light, vec3<f32>(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);
+    var diffuse = max(0.0, dot(-refracted_light, normal)) * 0.5;
+    
+    if point.y < water_info.r {
+        diffuse *= caustic_sample.r * 4.0;
+    }
+    
+    return vec3<f32>(0.5) * diffuse * uniforms.light_color.rgb + vec3<f32>(0.2) * uniforms.light_color.rgb; // Ambient
 }
 "#;

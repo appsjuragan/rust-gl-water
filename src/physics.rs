@@ -168,34 +168,5 @@ impl PhysicsEngine {
         );
     }
     
-    /// Get sphere displacement for water simulation
-    pub fn get_displacement(&self) -> Vec3 {
-        self.center - self.old_center
-    }
-}
 
-/// Uniform data for physics objects in shaders
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SphereUniform {
-    pub center: [f32; 4],
-    pub radius: f32,
-    pub _padding: [f32; 3],
-}
-
-impl Default for SphereUniform {
-    fn default() -> Self {
-        Self {
-            center: [0.0; 4],
-            radius: 0.25,
-            _padding: [0.0; 3],
-        }
-    }
-}
-
-impl SphereUniform {
-    pub fn update(&mut self, physics: &PhysicsEngine) {
-        self.center = [physics.center.x, physics.center.y, physics.center.z, 1.0];
-        self.radius = physics.radius;
-    }
 }
