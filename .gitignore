@@ -8,3 +8,4 @@ Cargo.lock
 .idea/
 .DS_Store
 .gemini
+build_log*
