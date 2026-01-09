@@ -1,0 +1,210 @@
+﻿cargo :    Compiling rust-gl-water v0.1.0 (D:\projects\rust-gl-water)
+At line:1 char:53
++ ... TH = "D:\projects\mingw64\bin;" + $env:PATH; cargo build 2>&1 | 
+Out-F ...
++                                                  ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling ru...\rust-gl-w 
+   ater):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+error[E0308]: mismatched types
+    --> src\app.rs:66:44
+     |
+  66 |           let instance = 
+wgpu::Instance::new(&wgpu::InstanceDescriptor {
+     |  ________________________-------------------_^
+     | |                        |
+     | |                        arguments to this function are incorrect
+  67 | |             backends: wgpu::Backends::all(),
+  68 | |             ..Default::default()
+  69 | |         });
+     | |_________^ expected `InstanceDescriptor`, found 
+`&InstanceDescriptor`
+     |
+note: associated function defined here
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-22.1.0\src\lib.rs:2336:12
+     |
+2336 |     pub fn new(_instance_desc: InstanceDescriptor) -> Self {
+     |            ^^^
+help: consider removing the borrow
+     |
+  66 -         let instance = 
+wgpu::Instance::new(&wgpu::InstanceDescriptor {
+  66 +         let instance = 
+wgpu::Instance::new(wgpu::InstanceDescriptor {
+     |
+
+error[E0308]: mismatched types
+   --> src\water.rs:217:34
+    |
+217 |                     entry_point: Some("vs_main"),
+    |                                  ^^^^^^^^^^^^^^^ expected `&str`, 
+found `Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\water.rs:223:34
+    |
+223 |                     entry_point: Some("fs_main"),
+    |                                  ^^^^^^^^^^^^^^^ expected `&str`, 
+found `Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\ui.rs:131:30
+    |
+131 |                 entry_point: Some("vs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\ui.rs:144:30
+    |
+144 |                 entry_point: Some("fs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\renderer.rs:387:30
+    |
+387 |                 entry_point: Some("vs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\renderer.rs:393:30
+    |
+393 |                 entry_point: Some("fs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\renderer.rs:439:30
+    |
+439 |                 entry_point: Some("vs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\renderer.rs:445:30
+    |
+445 |                 entry_point: Some("fs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\renderer.rs:492:30
+    |
+492 |                 entry_point: Some("vs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\renderer.rs:498:30
+    |
+498 |                 entry_point: Some("fs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\renderer.rs:546:30
+    |
+546 |                 entry_point: Some("vs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0308]: mismatched types
+   --> src\renderer.rs:552:30
+    |
+552 |                 entry_point: Some("fs_main"),
+    |                              ^^^^^^^^^^^^^^^ expected `&str`, found 
+`Option<&str>`
+    |
+    = note: expected reference `&str`
+                    found enum `Option<&str>`
+
+error[E0499]: cannot borrow `*self` as mutable more than once at a time
+   --> src\app.rs:365:17
+    |
+300 |         let gfx = match &mut self.gfx {
+    |                         ------------- first mutable borrow occurs 
+here
+...
+365 |                 self.update_run_config();
+    |                 ^^^^ second mutable borrow occurs here
+...
+369 |             gfx.queue.submit(Some(encoder.finish()));
+    |             --------- first borrow later used here
+
+error[E0499]: cannot borrow `*self` as mutable more than once at a time
+   --> src\app.rs:366:17
+    |
+300 |         let gfx = match &mut self.gfx {
+    |                         ------------- first mutable borrow occurs 
+here
+...
+366 |                 self.init_water_drops(); // Initialize simulation
+    |                 ^^^^ second mutable borrow occurs here
+...
+369 |             gfx.queue.submit(Some(encoder.finish()));
+    |             --------- first borrow later used here
+
+error[E0521]: borrowed data escapes outside of method
+   --> src\gui.rs:117:13
+    |
+ 72 |         encoder: &mut wgpu::CommandEncoder,
+    |         -------  - let's call the lifetime of this reference `'1`
+    |         |
+    |         `encoder` is a reference that is only valid in the method 
+body
+...
+117 |             self.renderer.render(&mut pass, &clipped_primitives, 
+&screen_descriptor);
+    |             
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |             |
+    |             `encoder` escapes the method body here
+    |             argument requires that `'1` must outlive `'static`
+    |
+    = note: requirement occurs because of a mutable reference to 
+`wgpu::RenderPass<'static>`
+    = note: mutable references are invariant over their type parameter
+    = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for 
+more information about variance
+
+Some errors have detailed explanations: E0308, E0499, E0521.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `rust-gl-water` (bin "rust-gl-water") due to 16 
+previous errors

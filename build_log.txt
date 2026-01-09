@@ -1,0 +1,369 @@
+﻿cargo :    Compiling rust-gl-water v0.1.0 (D:\projects\rust-gl-water)
+At line:1 char:53
++ ... TH = "D:\projects\mingw64\bin;" + $env:PATH; cargo build 2>&1 | 
+Out-F ...
++                                                  ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling ru...\rust-gl-w 
+   ater):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+warning: use of deprecated type alias `wgpu::ImageCopyTexture`: This has 
+been renamed to `TexelCopyTextureInfo`, and will be removed in 25.0.0.
+   --> src\ui.rs:261:19
+    |
+261 |             wgpu::ImageCopyTexture {
+    |                   ^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated type alias `wgpu::ImageDataLayout`: This has 
+been renamed to `TexelCopyBufferLayout`, and will be removed in 25.0.0.
+   --> src\ui.rs:268:19
+    |
+268 |             wgpu::ImageDataLayout {
+    |                   ^^^^^^^^^^^^^^^
+
+error[E0382]: borrow of moved value: `window`
+   --> src\app.rs:120:28
+    |
+ 63 |     async fn new(window: Arc<Window>) -> Self {
+    |                  ------ move occurs because `window` has type 
+`Arc<winit::window::Window>`, which does not implement the `Copy` trait
+...
+ 71 |         let surface = 
+instance.create_surface(window).expect("Failed to create surface");
+    |                                               ------ value moved 
+here
+...
+120 |         let gui = Gui::new(window.clone(), &device, surface_format);
+    |                            ^^^^^^ value borrowed here after move
+    |
+help: consider borrowing `window`
+    |
+ 71 |         let surface = 
+instance.create_surface(&window).expect("Failed to create surface");
+    |                                               +
+
+error[E0062]: field `frame_count` specified more than once
+   --> src\app.rs:179:13
+    |
+177 |             frame_count: 0,
+    |             -------------- first use of `frame_count`
+178 |             accum_time: 0.0,
+179 |             frame_count: 0,
+    |             ^^^^^^^^^^^ used more than once
+
+error[E0062]: field `accum_time` specified more than once
+   --> src\app.rs:180:13
+    |
+178 |             accum_time: 0.0,
+    |             --------------- first use of `accum_time`
+179 |             frame_count: 0,
+180 |             accum_time: 0.0,
+    |             ^^^^^^^^^^ used more than once
+
+error[E0560]: struct `Application` has no field named `current_fps`
+   --> src\app.rs:181:13
+    |
+181 |             current_fps: 60,
+    |             ^^^^^^^^^^^ `Application` does not have this field
+    |
+    = note: all struct fields are already assigned
+
+error[E0609]: no field `current_fps` on type `&mut Application`
+   --> src\app.rs:199:18
+    |
+199 |             self.current_fps = self.frame_count as i32;
+    |                  ^^^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `window`, `gfx`, `camera`, `physics`, 
+`input` ... and 9 others
+
+error[E0616]: field `common_uniform` of struct `renderer::Renderer` is 
+private
+   --> src\app.rs:290:27
+    |
+290 |              gfx.renderer.common_uniform.light_color = [
+    |                           ^^^^^^^^^^^^^^ private field
+
+error[E0609]: no field `current_fps` on type `&mut Application`
+   --> src\app.rs:388:40
+    |
+388 |         gfx.ui.update(&gfx.queue, self.current_fps);
+    |                                        ^^^^^^^^^^^ unknown field
+    |
+    = note: available fields are: `window`, `gfx`, `camera`, `physics`, 
+`input` ... and 9 others
+
+error[E0063]: missing fields `sphere_center` and `wall_height` in 
+initializer of `renderer::Renderer`
+   --> src\renderer.rs:620:9
+    |
+620 |         Self {
+    |         ^^^^ missing `sphere_center` and `wall_height`
+
+error[E0061]: this function takes 6 arguments but 5 arguments were 
+supplied
+   --> src\gui.rs:51:21
+    |
+ 51 |         let state = State::new(ctx.clone(), viewport_id, &window, 
+Some(window.scale_factor() as f32), None);
+    |                     ^^^^^^^^^^--------------------------------------
+--------------------------------------- argument #6 of type 
+`Option<usize>` is missing
+    |
+note: associated function defined here
+   --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b5
+b557f\egui-winit-0.29.1\src\lib.rs:109:12
+    |
+109 |     pub fn new(
+    |            ^^^
+help: provide the argument
+    |
+ 51 |         let state = State::new(ctx.clone(), viewport_id, &window, 
+Some(window.scale_factor() as f32), None, /* Option<usize> */);
+    |                                                                     
+                                      +++++++++++++++++++++
+
+error[E0061]: this function takes 5 arguments but 4 arguments were 
+supplied
+    --> src\gui.rs:53:24
+     |
+  53 |         let renderer = Renderer::new(device, format, None, 1);
+     |                        ^^^^^^^^^^^^^-------------------------
+     |                                     ||       |
+     |                                     ||       expected 
+`egui_wgpu::wgpu::TextureFormat`, found `wgpu::TextureFormat`
+     |                                     |expected 
+`egui_wgpu::wgpu::Device`, found `wgpu::Device`
+     |                                     argument #5 of type `bool` is 
+missing
+     |
+     = note: `wgpu::Device` and `egui_wgpu::wgpu::Device` have similar 
+names, but are actually distinct types
+note: `wgpu::Device` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-24.0.5\src\api\device.rs:18:1
+     |
+  18 | pub struct Device {
+     | ^^^^^^^^^^^^^^^^^
+note: `egui_wgpu::wgpu::Device` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-22.1.0\src\lib.rs:174:1
+     |
+ 174 | pub struct Device {
+     | ^^^^^^^^^^^^^^^^^
+note: two different versions of crate `wgpu_types` are being used; two 
+types coming from two different versions of the same crate are different 
+types even if they look the same
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-types-24.0.0\src\lib.rs:2516:1
+     |
+2516 | pub enum TextureFormat {
+     | ^^^^^^^^^^^^^^^^^^^^^^ this is the found type `wgpu::TextureFormat`
+     |
+    ::: C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-types-22.0.0\src\lib.rs:2422:1
+     |
+2422 | pub enum TextureFormat {
+     | ^^^^^^^^^^^^^^^^^^^^^^ this is the expected type 
+`egui_wgpu::wgpu::TextureFormat`
+     |
+    ::: src\gui.rs:2:5
+     |
+   2 | use egui_wgpu::{Renderer, ScreenDescriptor};
+     |     --------- one version of crate `wgpu_types` used here, as a 
+dependency of crate `wgpu_hal`
+     |
+    ::: src\water.rs:4:5
+     |
+   4 | use wgpu::util::DeviceExt;
+     |     ---- one version of crate `wgpu_types` used here, as a 
+dependency of crate `wgpu`
+     = help: you can use `cargo tree` to explore your dependency tree
+note: associated function defined here
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\egui-wgpu-0.29.1\src\renderer.rs:210:12
+     |
+ 210 |     pub fn new(
+     |            ^^^
+help: provide the argument
+     |
+  53 -         let renderer = Renderer::new(device, format, None, 1);
+  53 +         let renderer = Renderer::new(/* &egui_wgpu::wgpu::Device 
+*/, /* egui_wgpu::wgpu::TextureFormat */, None, 1, /* bool */);
+     |
+
+error[E0277]: expected a `FnMut(&egui::Context)` closure, found `impl 
+FnOnce(&Context)`
+   --> src\gui.rs:78:51
+    |
+ 78 |         let full_output = self.ctx.run(raw_input, run_ui);
+    |                                    ---            ^^^^^^ expected 
+an `FnMut(&egui::Context)` closure, found `impl FnOnce(&Context)`
+    |                                    |
+    |                                    required by a bound introduced 
+by this call
+    |
+    = note: `impl FnOnce(&Context)` implements `FnOnce`, but it must 
+implement `FnMut`, which is more general
+    = note: expected a closure with signature `for<'a> fn(&'a 
+egui::Context)`
+               found a closure with signature `fn(&egui::Context)`
+note: required by a bound in `egui::Context::run`
+   --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b5
+b557f\egui-0.29.1\src\context.rs:790:65
+    |
+790 |     pub fn run(&self, mut new_input: RawInput, mut run_ui: impl 
+FnMut(&Self)) -> FullOutput {
+    |                                                                 
+^^^^^^^^^^^^ required by this bound in `Context::run`
+
+error[E0308]: arguments to this method are incorrect
+    --> src\gui.rs:90:27
+     |
+  90 |             self.renderer.update_texture(device, queue, *id, 
+delta);
+     |                           ^^^^^^^^^^^^^^ ------  ----- expected 
+`egui_wgpu::wgpu::Queue`, found `wgpu::Queue`
+     |                                          |
+     |                                          expected 
+`egui_wgpu::wgpu::Device`, found `wgpu::Device`
+     |
+     = note: `wgpu::Device` and `egui_wgpu::wgpu::Device` have similar 
+names, but are actually distinct types
+note: `wgpu::Device` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-24.0.5\src\api\device.rs:18:1
+     |
+  18 | pub struct Device {
+     | ^^^^^^^^^^^^^^^^^
+note: `egui_wgpu::wgpu::Device` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-22.1.0\src\lib.rs:174:1
+     |
+ 174 | pub struct Device {
+     | ^^^^^^^^^^^^^^^^^
+     = note: `wgpu::Queue` and `egui_wgpu::wgpu::Queue` have similar 
+names, but are actually distinct types
+note: `wgpu::Queue` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-24.0.5\src\api\queue.rs:13:1
+     |
+  13 | pub struct Queue {
+     | ^^^^^^^^^^^^^^^^
+note: `egui_wgpu::wgpu::Queue` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-22.1.0\src\lib.rs:1451:1
+     |
+1451 | pub struct Queue {
+     | ^^^^^^^^^^^^^^^^
+note: method defined here
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\egui-wgpu-0.29.1\src\renderer.rs:540:12
+     |
+ 540 |     pub fn update_texture(
+     |            ^^^^^^^^^^^^^^
+
+error[E0308]: arguments to this method are incorrect
+    --> src\gui.rs:93:23
+     |
+  93 |         self.renderer.update_buffers(
+     |                       ^^^^^^^^^^^^^^
+  94 |             device,
+     |             ------ expected `egui_wgpu::wgpu::Device`, found 
+`wgpu::Device`
+  95 |             queue,
+     |             ----- expected `egui_wgpu::wgpu::Queue`, found 
+`wgpu::Queue`
+  96 |             encoder,
+     |             ------- expected `egui_wgpu::wgpu::CommandEncoder`, 
+found `wgpu::CommandEncoder`
+     |
+     = note: `wgpu::Device` and `egui_wgpu::wgpu::Device` have similar 
+names, but are actually distinct types
+note: `wgpu::Device` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-24.0.5\src\api\device.rs:18:1
+     |
+  18 | pub struct Device {
+     | ^^^^^^^^^^^^^^^^^
+note: `egui_wgpu::wgpu::Device` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-22.1.0\src\lib.rs:174:1
+     |
+ 174 | pub struct Device {
+     | ^^^^^^^^^^^^^^^^^
+     = note: `wgpu::Queue` and `egui_wgpu::wgpu::Queue` have similar 
+names, but are actually distinct types
+note: `wgpu::Queue` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-24.0.5\src\api\queue.rs:13:1
+     |
+  13 | pub struct Queue {
+     | ^^^^^^^^^^^^^^^^
+note: `egui_wgpu::wgpu::Queue` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-22.1.0\src\lib.rs:1451:1
+     |
+1451 | pub struct Queue {
+     | ^^^^^^^^^^^^^^^^
+     = note: `wgpu::CommandEncoder` and `egui_wgpu::wgpu::CommandEncoder` 
+have similar names, but are actually distinct types
+note: `wgpu::CommandEncoder` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-24.0.5\src\api\command_encoder.rs:21:1
+     |
+  21 | pub struct CommandEncoder {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^
+note: `egui_wgpu::wgpu::CommandEncoder` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-22.1.0\src\lib.rs:1294:1
+     |
+1294 | pub struct CommandEncoder {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^
+note: method defined here
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\egui-wgpu-0.29.1\src\renderer.rs:844:12
+     |
+ 844 |     pub fn update_buffers(
+     |            ^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+    --> src\gui.rs:117:34
+     |
+ 117 |             self.renderer.render(&mut pass, &clipped_primitives, 
+&screen_descriptor);
+     |                           ------ ^^^^^^^^^ expected 
+`egui_wgpu::wgpu::RenderPass<'static>`, found `wgpu::RenderPass<'_>`
+     |                           |
+     |                           arguments to this method are incorrect
+     |
+     = note: `wgpu::RenderPass<'_>` and 
+`egui_wgpu::wgpu::RenderPass<'static>` have similar names, but are 
+actually distinct types
+note: `wgpu::RenderPass<'_>` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-24.0.5\src\api\render_pass.rs:25:1
+     |
+  25 | pub struct RenderPass<'encoder> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: `egui_wgpu::wgpu::RenderPass<'static>` is defined in crate `wgpu`
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\wgpu-22.1.0\src\lib.rs:1331:1
+     |
+1331 | pub struct RenderPass<'encoder> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: method defined here
+    --> C:\Users\HY3-UB-061\.cargo\registry\src\index.crates.io-1949cf8c6b
+5b557f\egui-wgpu-0.29.1\src\renderer.rs:417:12
+     |
+ 417 |     pub fn render(
+     |            ^^^^^^
+
+Some errors have detailed explanations: E0061, E0062, E0063, E0277, 
+E0308, E0382, E0560, E0609, E0616.
+For more information about an error, try `rustc --explain E0061`.
+warning: `rust-gl-water` (bin "rust-gl-water") generated 2 warnings
+error: could not compile `rust-gl-water` (bin "rust-gl-water") due to 14 
+previous errors; 2 warnings emitted
