@@ -72,9 +72,32 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
     let cube_min = vec3<f32>(-pool_size.x, -pool_height, -pool_size.y);
     let cube_max = vec3<f32>(pool_size.x, wall_height, pool_size.y);
     let t = intersect_cube(origin, ray, cube_min, cube_max);
-    let hit = origin + ray * t.y;
     
-    if ray.y < 0.0 {{
+    var t_final = t.y;
+    var is_sphere = false;
+    
+    let t_sphere = intersect_sphere(origin, ray, uniforms.sphere_center.xyz, uniforms.sphere_radius);
+    if (t_sphere > 0.0 && t_sphere < t_final) {{
+        t_final = t_sphere;
+        is_sphere = true;
+    }}
+    
+    let hit = origin + ray * t_final;
+    
+    if (is_sphere) {{
+        let normal = normalize(hit - uniforms.sphere_center.xyz);
+        let diffuse = max(0.0, dot(normal, light));
+        let ambient = 0.4;
+        let sphere_color = vec3<f32>(0.6, 0.7, 0.8); // Light blue-grey sphere
+        
+        // Simple Phong
+        let view = normalize(origin - hit);
+        let halfway = normalize(light + view);
+        let spec = pow(max(0.0, dot(normal, halfway)), 32.0);
+        
+        color = sphere_color * (ambient + diffuse) + vec3<f32>(1.0) * spec * 0.5;
+        
+    }} else if ray.y < 0.0 {{
         // Looking down - hit floor/walls
         let coord = hit.xz / (pool_size * 2.0) + 0.5;
         let water_info = textureSample(water_texture, water_sampler, coord);

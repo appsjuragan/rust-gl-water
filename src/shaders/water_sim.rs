@@ -20,7 +20,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var out: VertexOutput;
     let pos = positions[vertex_index];
     out.position = vec4<f32>(pos, 0.0, 1.0);
-    out.uv = pos * 0.5 + 0.5;
+    out.uv = vec2<f32>(pos.x * 0.5 + 0.5, 1.0 - (pos.y * 0.5 + 0.5));
     return out;
 }
 
@@ -76,7 +76,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var out: VertexOutput;
     let pos = positions[vertex_index];
     out.position = vec4<f32>(pos, 0.0, 1.0);
-    out.uv = pos * 0.5 + 0.5;
+    out.uv = vec2<f32>(pos.x * 0.5 + 0.5, 1.0 - (pos.y * 0.5 + 0.5));
     return out;
 }
 
@@ -136,7 +136,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var out: VertexOutput;
     let pos = positions[vertex_index];
     out.position = vec4<f32>(pos, 0.0, 1.0);
-    out.uv = pos * 0.5 + 0.5;
+    out.uv = vec2<f32>(pos.x * 0.5 + 0.5, 1.0 - (pos.y * 0.5 + 0.5));
     return out;
 }
 
@@ -190,7 +190,7 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var out: VertexOutput;
     let pos = positions[vertex_index];
     out.position = vec4<f32>(pos, 0.0, 1.0);
-    out.uv = pos * 0.5 + 0.5;
+    out.uv = vec2<f32>(pos.x * 0.5 + 0.5, 1.0 - (pos.y * 0.5 + 0.5));
     return out;
 }
 
