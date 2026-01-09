@@ -196,14 +196,24 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     return out;
 }
 
-struct SphereVolumeUniforms {
+struct ObjectTransition {
     old_center: vec4<f32>,
     new_center: vec4<f32>,
-    radius: f32,
     strength: f32,
+    _pad_a: f32,
+    _pad_b: f32,
+    _pad_c: f32,
+}
+
+struct SphereVolumeUniforms {
+    objects: array<ObjectTransition, 5>,
+    radius: f32,
+    _pad0: f32,
     pool_size: vec2<f32>,
-    shape_type: i32, // 0=Sphere, 1=Torus, 2=Tetrahedron, 3=Cube
-    _padding: f32,
+    shape_type: i32,
+    object_count: i32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 @group(0) @binding(0) var input_texture: texture_2d<f32>;
@@ -239,7 +249,7 @@ fn get_shape_dist(p: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
 }
 
 
-fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>) -> f32 {
+fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>, strength: f32) -> f32 {
     // World position of this water column
     let world_x = (uv.x * 2.0 - 1.0) * uniforms.pool_size.x / 2.0;
     let world_z = (uv.y * 2.0 - 1.0) * uniforms.pool_size.y / 2.0;
@@ -261,7 +271,7 @@ fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>) -> f32 {
         let actual_top = min(top, water_level);
         let submerged_h = max(0.0, actual_top - bot);
         
-        return submerged_h * uniforms.strength;
+        return submerged_h * strength;
     }
     
     // Analytic Torus
@@ -279,7 +289,7 @@ fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>) -> f32 {
         let actual_top = min(top, water_level);
         let submerged_h = max(0.0, actual_top - bot);
         
-        return submerged_h * uniforms.strength;
+        return submerged_h * strength;
     }
     
     // Analytic Cube
@@ -297,7 +307,7 @@ fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>) -> f32 {
          let actual_top = min(top, water_level);
          let submerged_h = max(0.0, actual_top - bot);
          
-         return submerged_h * mask_x * mask_z * uniforms.strength;
+         return submerged_h * mask_x * mask_z * strength;
     }
     
     // Fallback Scan (Tetrahedron)
@@ -327,15 +337,38 @@ fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>) -> f32 {
         current_y += step_size;
     }
     
-    return thickness * uniforms.strength * 4.0;
+    return thickness * strength * 4.0;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var info = textureSample(input_texture, texture_sampler, in.uv);
     
-    info.r += volume_in_shape(uniforms.old_center.xyz, in.uv);
-    info.r -= volume_in_shape(uniforms.new_center.xyz, in.uv);
+    if (uniforms.object_count > 0) {
+        let obj = uniforms.objects[0];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 1) {
+        let obj = uniforms.objects[1];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 2) {
+        let obj = uniforms.objects[2];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 3) {
+        let obj = uniforms.objects[3];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 4) {
+        let obj = uniforms.objects[4];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
     
     return info;
 }

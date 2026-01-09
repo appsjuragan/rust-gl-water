@@ -1,29 +1,35 @@
 # Rust GL Water
 
-A port of the [WebGL2 Water](https://github.com/idootop/webgl2-water) simulation to Rust using wgpu.
+A high-performance port of the classic [WebGL Water](http://madebyevan.com/webgl-water/) simulation to Rust, powered by **wgpu** and GPGPU computing.
 
 ![Demo](demo.gif)
 
 ## Features
 
-- 🌊 **Real-time Water Simulation**: GPU-accelerated wave equation simulation
-- 🎨 **Configuration Window**: Set simulation parameters (gravity, shape, colors) before launch
-- ✨ **Caustic Lighting**: Dynamic light refraction patterns on pool floor
-- 🎯 **Interactive**: Click/drag to create ripples or move objects
-- 🦆 **Shape Support**: Choose between Sphere, Torus, Tetrahedron, and Cube
-- 🎮 **Orbit & Zoom Camera**: Drag to rotate, scroll to zoom
+- 🌊 **Real-time Water Simulation**: High-fidelity wave equation simulation using GPU compute (fragment shader fallback).
+- 🧊 **Multi-Object System**: Simulate and interact with up to **5 concurrent objects** simultaneously.
+- 💎 **Advanced Materials**: Realistic material simulation with dynamic refraction and reflection:
+  - **Glass**: High refraction with light absorption.
+  - **Steel**: Metallic reflections tinted by material color.
+  - **Wood**: Opaque material with diffuse lighting.
+  - **Ice**: Frosted appearance with subtle refraction.
+- ✨ **Dynamic Caustics**: Real-time light refraction patterns on the pool floor that react to every ripple and object.
+- 📐 **Diverse Geometry**: Support for multiple 3D primitives including **Spheres, Tori, Tetrahedrons, and Cubes**.
+- 🛠️ **Real-time Configuration**: Integrated GUI for adjusting gravity, object count, materials, and lighting on the fly.
+- 🎯 **Interaction**: Click/drag to create ripples or move submerged objects with realistic buoyancy physics.
+- 🎮 **Orbit & Zoom Camera**: Intuitive orbital camera with smooth zoom.
 
 ## Controls
 
 | Action | Effect |
 |--------|--------|
 | **Left Click + Drag on Water** | Create ripples |
-| **Left Click + Drag on Object** | Move object (Sphere/Torus/etc) |
-| **Left Click + Drag on Wall/Background** | Orbit camera |
+| **Left Click + Drag on Object** | Move object (Buoyancy active) |
+| **Left Click + Drag on Wall** | Orbit camera |
 | **Mouse Scroll** | Zoom in/out |
 | **Space** | Pause/Resume simulation |
 | **'G' Key** | Toggle gravity |
-| **'L' Key** | Update light direction to match camera |
+| **'L' Key** | Update light direction to view |
 | **'P' Key** | Toggle FPS display |
 | **Escape** | Exit |
 
@@ -31,69 +37,39 @@ A port of the [WebGL2 Water](https://github.com/idootop/webgl2-water) simulation
 
 ### Prerequisites
 
-- Rust 1.70+ (install from https://rustup.rs)
-- A GPU with Vulkan, DX12, or Metal support
+- **Rust 1.70+**: [rustup.rs](https://rustup.rs)
+- **Modern GPU**: Supports Vulkan, DirectX 12, or Metal.
 
 ### Build and Run
 
 ```bash
-# Debug build
-cargo run
-
-# Release build (recommended for performance)
+# Release build (highly recommended for fluid 60 FPS)
 cargo run --release
 ```
 
-### Using MinGW (optional)
-
-If you want to compile with MinGW instead of MSVC:
-
-1. Ensure MinGW is installed at `D:\projects\mingw64`
-2. Uncomment the target line in `.cargo/config.toml`
-3. Add the MinGW GNU target:
-   ```bash
-   rustup target add x86_64-pc-windows-gnu
-   ```
-4. Build:
-   ```bash
-   cargo build --target x86_64-pc-windows-gnu --release
-   ```
-
 ## Architecture
 
-The project is structured as follows:
+The project leverages **wgpu** for cross-platform GPU acceleration:
 
-```
-src/
-├── main.rs          # Entry point
-├── app.rs           # Application & event loop
-├── camera.rs        # Orbital camera
-├── input.rs         # Mouse/keyboard input handling
-├── physics.rs       # Buoyancy physics simulation
-├── water.rs         # GPU water simulation
-├── renderer.rs      # Scene rendering
-└── shaders/         # WGSL shaders
-    ├── common.rs    # Shared constants & functions
-    ├── water_sim.rs # Wave simulation shaders
-    ├── water_render.rs # Water surface shader
-    ├── caustics.rs  # Light caustics shader
-    └── pool.rs      # Pool walls shader
-```
+- **src/physics.rs**: Handles buoyancy and multi-object collision states.
+- **src/water.rs**: Orchestrates GPU textures for ping-pong wave simulation.
+- **src/renderer.rs**: Manages the main rendering pipeline and instanced object rendering.
+- **src/shaders/**: Optimized WGSL shaders.
+  - `common.rs`: Shared SDF utilities and unrolled light/logic loops for maximum compatibility.
+  - `water_sim.rs`: GPGPU logic for wave propagation and volume displacement.
+  - `sphere.rs`: Material-aware shader for object rendering with support for instancing.
 
-### Key Algorithms
+## Key Algorithms
 
-1. **Water Simulation**: 2D wave equation solved on GPU using ping-pong textures
-2. **Caustics**: Light refraction patterns calculated per-vertex and rendered additively
-3. **Fresnel Effect**: Realistic reflection/refraction mixing based on view angle
-4. **Buoyancy**: Simple floating object physics with water interaction
+1. **2D Wave Equation**: Solved on a 512x512 grid using ping-pong textures for stable, real-time wave propagation.
+2. **Ray-Marched SDFs**: Shapes like Torus and Tetrahedron are intersected using optimized Signed Distance Fields.
+3. **Instanced Rendering**: Render multiple objects efficiently by passing arrays of centers to the GPU and utilizing builtin instance IDs.
+4. **Volume Displacement**: Submerged objects displace water volume analytically, creating realistic waves when moved.
 
 ## Credits
 
-Original WebGL2 implementation by [Del Wang](https://github.com/idootop):
-- https://github.com/idootop/webgl2-water
-
-Based on the classic WebGL Water by [Evan Wallace](http://madebyevan.com):
-- http://madebyevan.com/webgl-water/
+- **Evan Wallace**: Original [WebGL Water](http://madebyevan.com/webgl-water/) creator.
+- **Del Wang**: [Idootop](https://github.com/idootop) for the WebGL2 reference implementation.
 
 ## License
 

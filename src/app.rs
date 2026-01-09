@@ -158,6 +158,7 @@ pub struct Application {
     state: AppState,
     run_config: RunConfig,
     current_fps: i32,
+    dragged_object_index: Option<usize>,
 }
 
 impl Application {
@@ -177,6 +178,7 @@ impl Application {
             accum_time: 0.0,
 
             current_fps: 60,
+            dragged_object_index: None,
             state: AppState::Configuring,
             run_config: RunConfig::default(),
         }
@@ -212,12 +214,13 @@ impl Application {
         let water_height = 0.0;
 
         // Update physics
-        let is_dragging = self.input.mode == InteractionMode::MoveSphere;
-        self.physics.update(dt, water_height, self.input.mouse_point, is_dragging);
+        self.physics.update(dt, water_height, self.input.mouse_point, self.dragged_object_index);
 
         // Handle sphere dragging
         if let Some(delta) = self.input.get_sphere_drag_delta(self.camera.view_projection_matrix().inverse()) {
-            self.physics.move_by(delta);
+            if let Some(idx) = self.dragged_object_index {
+                self.physics.move_by(idx, delta);
+            }
         }
 
         // Handle camera orbit
@@ -262,20 +265,13 @@ impl Application {
             Shape::Cube => 3,
         };
 
-        // Calculate dynamic strength based on movement speed (displacement)
-        // Higher speed = higher ripples (approximating Kinetic Energy impact)
-        let displacement = (self.physics.center - self.physics.old_center).length();
-        let speed_boost = 1.0 + displacement * 50.0; // Strong boost for fast movement
-        let dynamic_strength = self.physics.impact_strength * speed_boost;
-
-        gfx.water.move_sphere(
+        gfx.water.move_objects(
             &gfx.device,
             &gfx.queue,
             &mut encoder,
-            self.physics.old_center,
-            self.physics.center,
+            &self.physics.objects,
+            self.physics.impact_strength,
             self.physics.radius,
-            dynamic_strength, // Use dynamic strength
             shape_type,
         );
 
@@ -339,6 +335,10 @@ impl Application {
                          });
                          
                          ui.add_space(10.0);
+                         ui.label("Object Numbers:");
+                         ui.add(egui::Slider::new(&mut config.object_count, 1..=5));
+
+                         ui.add_space(10.0);
                          ui.label("Light Color:");
                          ui.horizontal(|ui| {
                              ui.label("Red");
@@ -374,9 +374,7 @@ impl Application {
                     self.physics.gravity = Vec3::new(0.0, -9.81 * config.gravity, 0.0);
                     
                     // Reset object position and velocity
-                    self.physics.center = Vec3::new(0.0, 2.0, 0.0);
-                    self.physics.old_center = self.physics.center;
-                    self.physics.velocity = Vec3::ZERO;
+                    self.physics.reset_objects(config.object_count);
                     
                     let shape_name = match config.shape {
                         Shape::Sphere => "Sphere",
@@ -436,14 +434,16 @@ impl Application {
             Texture::Ice => 3,
         };
 
+        let lc = self.run_config.light_color;
         gfx.renderer.update_uniforms(
             &gfx.queue,
             &self.camera,
-            self.physics.center,
+            &self.physics.objects,
             self.physics.radius,
             self.time,
             shape_type,
             texture_type,
+            [lc[0] as f32 / 255.0, lc[1] as f32 / 255.0, lc[2] as f32 / 255.0],
         );
 
         // Update FPS UI
@@ -643,19 +643,21 @@ impl ApplicationHandler for Application {
                         let view_proj_inv = self.camera.view_projection_matrix().inverse();
                         let view_dir = self.camera.target - self.camera.position();
                         
-                        self.input.on_mouse_down(
+                        let hit_idx = self.input.on_mouse_down(
                             self.input.mouse_pos.x,
                             self.input.mouse_pos.y,
                             view_proj_inv,
                             view_dir.normalize(),
-                            self.physics.center,
+                            &self.physics.objects,
                             self.physics.radius,
                             self.physics.pool_width,
                             self.physics.pool_length,
                         );
+                        self.dragged_object_index = hit_idx;
                     }
                     (ElementState::Released, MouseButton::Left) => {
                         self.input.on_mouse_up();
+                        self.dragged_object_index = None;
                     }
                     _ => {}
                 }

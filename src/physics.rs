@@ -2,14 +2,27 @@
 
 use glam::Vec3;
 
-/// Physics engine for floating sphere (duck) simulation
-pub struct PhysicsEngine {
-    /// Current center position of sphere
+#[derive(Clone, Copy, Debug)]
+pub struct ObjectState {
     pub center: Vec3,
-    /// Previous center position (for water interaction)
     pub old_center: Vec3,
-    /// Current velocity
     pub velocity: Vec3,
+}
+
+impl Default for ObjectState {
+    fn default() -> Self {
+        Self {
+            center: Vec3::ZERO,
+            old_center: Vec3::ZERO,
+            velocity: Vec3::ZERO,
+        }
+    }
+}
+
+/// Physics engine for floating simulation
+pub struct PhysicsEngine {
+    pub objects: Vec<ObjectState>,
+    
     /// Gravity vector
     pub gravity: Vec3,
     /// Sphere radius
@@ -21,22 +34,24 @@ pub struct PhysicsEngine {
     pub pool_depth: f32,
     
     // Physics parameters
-    /// What fraction of sphere floats above water (0-1)
     pub float_ratio: f32,
-    /// How much the sphere disturbs water
     pub impact_strength: f32,
-    /// Whether physics simulation is enabled
     pub enabled: bool,
-    /// Whether gravity is applied
     pub gravity_enabled: bool,
 }
 
 impl Default for PhysicsEngine {
     fn default() -> Self {
-        Self {
-            center: Vec3::ZERO,
-            old_center: Vec3::ZERO,
+        // Initialize with one default object
+        let mut objects = Vec::new();
+        objects.push(ObjectState {
+            center: Vec3::new(0.0, 2.0, 0.0),
+            old_center: Vec3::new(0.0, 2.0, 0.0),
             velocity: Vec3::ZERO,
+        });
+
+        Self {
+            objects,
             gravity: Vec3::new(0.0, -9.81, 0.0), // Use Earth gravity
             radius: 0.25,
             pool_width: 2.0,
@@ -51,34 +66,34 @@ impl Default for PhysicsEngine {
 }
 
 impl PhysicsEngine {
-    /// Update physics simulation
-    /// 
-    /// # Arguments
-    /// * `dt` - Delta time in seconds
-    /// * `water_height` - Water height at sphere position
-    /// * `mouse_point` - Optional mouse point for repulsion
-    /// * `is_dragging` - Whether user is dragging the sphere
+    /// Update physics simulation for all objects
     pub fn update(
         &mut self,
         dt: f32,
         water_height: f32,
         mouse_point: Option<Vec3>,
-        is_dragging: bool,
+        dragged_object_index: Option<usize>,
     ) {
         // Skip if time step is too large
         if dt > 1.0 {
             return;
         }
         
-        // Store old position
-        self.old_center = self.center;
-        
-        if is_dragging {
-            // User is manually moving sphere
-            self.velocity = Vec3::ZERO;
-        } else if self.enabled {
+        // 1. Update individual objects
+        for (i, obj) in self.objects.iter_mut().enumerate() {
+            // Store old position
+            obj.old_center = obj.center;
+            
+            // If this object is being dragged, skip physics integration
+            if Some(i) == dragged_object_index {
+                obj.velocity = Vec3::ZERO;
+                continue;
+            } else if !self.enabled {
+                continue;
+            }
+
             // Calculate how much of sphere is underwater
-            let percent_underwater = ((water_height + self.radius - self.center.y) 
+            let percent_underwater = ((water_height + self.radius - obj.center.y) 
                 / (2.0 * self.radius))
                 .clamp(0.0, 1.0);
             
@@ -87,11 +102,11 @@ impl PhysicsEngine {
             // Apply gravity and buoyancy (vertical)
             let effective_gravity = if self.gravity_enabled { self.gravity } else { Vec3::ZERO };
             let g_term = effective_gravity * (dt - buoyancy_factor * dt * percent_underwater);
-            self.velocity += g_term;
+            obj.velocity += g_term;
             
             // Mouse repulsion (horizontal)
             if let Some(mouse) = mouse_point {
-                let mut dist_vec = self.center - mouse;
+                let mut dist_vec = obj.center - mouse;
                 dist_vec.y = 0.0; // Horizontal only
                 let dist = dist_vec.length();
                 let influence_radius = 1.0;
@@ -102,71 +117,135 @@ impl PhysicsEngine {
                         * push_strength 
                         * (1.0 - dist / influence_radius) 
                         * dt;
-                    self.velocity += force;
+                    obj.velocity += force;
                 }
             }
             
             // Apply drag based on underwater percentage
-            if self.velocity.length_squared() > 0.0 {
-                let drag = self.velocity.normalize()
+            if obj.velocity.length_squared() > 0.0 {
+                let drag = obj.velocity.normalize()
                     * percent_underwater
                     * dt
-                    * self.velocity.dot(self.velocity);
-                self.velocity -= drag;
+                    * obj.velocity.dot(obj.velocity);
+                obj.velocity -= drag;
             }
             
             // Integrate position
-            self.center += self.velocity * dt;
+            obj.center += obj.velocity * dt;
             
             // Wall collisions (X)
             let half_width = self.pool_width / 2.0;
-            if self.center.x < self.radius - half_width {
-                self.center.x = self.radius - half_width;
-                self.velocity.x = self.velocity.x.abs() * 0.5;
-            } else if self.center.x > half_width - self.radius {
-                self.center.x = half_width - self.radius;
-                self.velocity.x = -self.velocity.x.abs() * 0.5;
+            if obj.center.x < self.radius - half_width {
+                obj.center.x = self.radius - half_width;
+                obj.velocity.x = obj.velocity.x.abs() * 0.5;
+            } else if obj.center.x > half_width - self.radius {
+                obj.center.x = half_width - self.radius;
+                obj.velocity.x = -obj.velocity.x.abs() * 0.5;
             }
             
             // Wall collisions (Z)
             let half_length = self.pool_length / 2.0;
-            if self.center.z < self.radius - half_length {
-                self.center.z = self.radius - half_length;
-                self.velocity.z = self.velocity.z.abs() * 0.5;
-            } else if self.center.z > half_length - self.radius {
-                self.center.z = half_length - self.radius;
-                self.velocity.z = -self.velocity.z.abs() * 0.5;
+            if obj.center.z < self.radius - half_length {
+                obj.center.z = self.radius - half_length;
+                obj.velocity.z = obj.velocity.z.abs() * 0.5;
+            } else if obj.center.z > half_length - self.radius {
+                obj.center.z = half_length - self.radius;
+                obj.velocity.z = -obj.velocity.z.abs() * 0.5;
             }
             
             // Floor collision
-            if self.center.y < self.radius - self.pool_depth {
-                self.center.y = self.radius - self.pool_depth;
-                self.velocity.y = self.velocity.y.abs() * 0.7;
+            if obj.center.y < self.radius - self.pool_depth {
+                obj.center.y = self.radius - self.pool_depth;
+                obj.velocity.y = obj.velocity.y.abs() * 0.7;
+            }
+        }
+
+        // 2. Solve Object-Object Collisions
+        self.solve_object_collisions();
+    }
+    
+    fn solve_object_collisions(&mut self) {
+        let count = self.objects.len();
+        if count < 2 { return; }
+        
+        // Simple distinct pair iteration
+        for i in 0..count {
+            for j in (i + 1)..count {
+                let p1 = self.objects[i].center;
+                let p2 = self.objects[j].center;
+                let diff = p1 - p2;
+                let dist_sq = diff.length_squared();
+                let min_dist = self.radius * 2.0; // Assume same radius
+                
+                if dist_sq < min_dist * min_dist {
+                    let dist = dist_sq.sqrt();
+                    if dist < 0.0001 { continue; } // Avoid division by zero
+                    
+                    let overlap = min_dist - dist;
+                    let normal = diff / dist;
+                    
+                    // Separate objects
+                    let correction = normal * (overlap * 0.5);
+                    self.objects[i].center += correction;
+                    self.objects[j].center -= correction;
+                    
+                    // Exchange momentum (Elastic collision approximation)
+                    // v1' = v1 - dot(v1-v2, n) * n
+                    // v2' = v2 - dot(v2-v1, n) * n(but n is p1-p2, so for v2 use -n)
+                    
+                    let v1 = self.objects[i].velocity;
+                    let v2 = self.objects[j].velocity;
+                    
+                    let relative_vel = v1 - v2;
+                    let speed = relative_vel.dot(normal);
+                    
+                    if speed < 0.0 { // Closing in
+                        let impulse = normal * speed * 1.5; // 1.5 for bounce
+                        self.objects[i].velocity -= impulse * 0.5;
+                        self.objects[j].velocity += impulse * 0.5;
+                    }
+                }
             }
         }
     }
     
-    /// Move sphere by a delta (for mouse dragging)
-    pub fn move_by(&mut self, delta: Vec3) {
-        self.center += delta;
+    /// Move specific object by a delta
+    pub fn move_by(&mut self, index: usize, delta: Vec3) {
+        if index >= self.objects.len() { return; }
+        
+        let obj = &mut self.objects[index];
+        obj.center += delta;
         
         // Clamp to pool bounds
         let half_width = self.pool_width / 2.0;
         let half_length = self.pool_length / 2.0;
         
-        self.center.x = self.center.x.clamp(
+        obj.center.x = obj.center.x.clamp(
             self.radius - half_width,
             half_width - self.radius,
         );
-        self.center.y = self.center.y.clamp(
+        obj.center.y = obj.center.y.clamp(
             self.radius - self.pool_depth,
             10.0,
         );
-        self.center.z = self.center.z.clamp(
+        obj.center.z = obj.center.z.clamp(
             self.radius - half_length,
             half_length - self.radius,
         );
     }
     
-
+    pub fn reset_objects(&mut self, count: usize) {
+        self.objects.clear();
+        for i in 0..count {
+            // Scatter objects slightly
+            let offset_x = (i as f32 % 3.0 - 1.0) * 0.5;
+            let offset_z = ((i / 3) as f32 - 0.5) * 0.5;
+            
+            self.objects.push(ObjectState {
+                center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.5, offset_z), // Drop from height
+                old_center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.5, offset_z),
+                velocity: Vec3::ZERO,
+            });
+        }
+    }
 }

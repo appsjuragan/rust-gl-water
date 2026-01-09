@@ -42,11 +42,24 @@ struct VertexOutput {{
 @group(1) @binding(7) var sky_sampler: sampler;
 
 @vertex
-fn vs_main(in: VertexInput) -> VertexOutput {{
+fn vs_main(in: VertexInput, @builtin(instance_index) instance_idx: u32) -> VertexOutput {{
     var out: VertexOutput;
     
+    var center: vec3<f32>;
+    if (instance_idx == 0u) {{
+        center = uniforms.sphere_centers[0].xyz;
+    }} else if (instance_idx == 1u) {{
+        center = uniforms.sphere_centers[1].xyz;
+    }} else if (instance_idx == 2u) {{
+        center = uniforms.sphere_centers[2].xyz;
+    }} else if (instance_idx == 3u) {{
+        center = uniforms.sphere_centers[3].xyz;
+    }} else {{
+        center = uniforms.sphere_centers[4].xyz;
+    }}
+    
     // Transform unit sphere to world position
-    let world_pos = in.position * uniforms.sphere_radius + uniforms.sphere_center.xyz;
+    let world_pos = in.position * uniforms.sphere_radius + center;
     out.world_pos = world_pos;
     out.world_normal = in.normal;
     
@@ -117,7 +130,7 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
 }}
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {{
+fn fs_main(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @location(0) vec4<f32> {{
     let light_dir = normalize(-uniforms.light_dir.xyz);
     let normal = normalize(in.world_normal);
     let view_dir = normalize(in.world_pos - in.view_pos); // Vector from eye to point
@@ -151,14 +164,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {{
     let is_transparent = mat.absorption.x < 0.5;
     
     if (length(refract_dir_in) > 0.001 && is_transparent) {{
-        let local_origin = in.world_pos - uniforms.sphere_center.xyz;
+        // Need to find which sphere we are in for local coordinates
+        var center: vec3<f32>;
+        var best_dist = 1e30;
+        for (var i = 0; i < uniforms.object_count; i++) {{
+            let c = uniforms.sphere_centers[i].xyz;
+            let d = length(in.world_pos - c);
+            if (d < best_dist) {{
+                best_dist = d;
+                center = c;
+            }}
+        }}
+        
+        let local_origin = in.world_pos - center;
         let t_exit = get_exit_dist_shape(local_origin, refract_dir_in, shape_type, radius);
         
         if (t_exit > 0.001) {{
             let exit_point = in.world_pos + refract_dir_in * t_exit;
             
             let e = 0.001;
-            let local_exit = exit_point - uniforms.sphere_center.xyz;
+            let local_exit = exit_point - center;
             let dx = get_shape_dist(local_exit + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(e,0.0,0.0), shape_type, radius);
             let dy = get_shape_dist(local_exit + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,e,0.0), shape_type, radius);
             let dz = get_shape_dist(local_exit + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,0.0,e), shape_type, radius);

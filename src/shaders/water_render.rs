@@ -77,10 +77,13 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
     var is_shape = false;
     
     // Check shape intersection
-    let t_shape = intersect_shape_any(origin, ray, uniforms.sphere_center.xyz, uniforms.sphere_radius, uniforms.shape_type);
+    let shape_res = intersect_shape_any(origin, ray, uniforms);
+    let t_shape = shape_res.x;
+    var shape_idx = -1;
     if (t_shape > 0.0 && t_shape < t_final) {{
         t_final = t_shape;
         is_shape = true;
+        shape_idx = i32(shape_res.y);
     }}
     
     let hit = origin + ray * t_final;
@@ -89,7 +92,18 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         // Material-dependent refraction through the object
         let shape_type = uniforms.shape_type;
         let radius = uniforms.sphere_radius;
-        let center = uniforms.sphere_center.xyz;
+        var center: vec3<f32>;
+        if (shape_idx == 0) {{
+            center = uniforms.sphere_centers[0].xyz;
+        }} else if (shape_idx == 1) {{
+            center = uniforms.sphere_centers[1].xyz;
+        }} else if (shape_idx == 2) {{
+            center = uniforms.sphere_centers[2].xyz;
+        }} else if (shape_idx == 3) {{
+            center = uniforms.sphere_centers[3].xyz;
+        }} else {{
+            center = uniforms.sphere_centers[4].xyz;
+        }}
         let p = hit - center;
         
         // Get material properties

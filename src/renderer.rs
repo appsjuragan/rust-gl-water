@@ -3,6 +3,7 @@
 
 use glam::Vec3;
 use wgpu::util::DeviceExt;
+use crate::physics::ObjectState;
 
 use crate::camera::{Camera, CameraUniform};
 use crate::shaders::{caustics::caustics_shader, pool::pool_shader, water_render::water_shader, sphere::sphere_shader};
@@ -19,11 +20,13 @@ pub struct CommonUniforms {
     pub wall_height: f32,
     pub pool_size: [f32; 2],
     pub light_dir: [f32; 4],
-    pub sphere_center: [f32; 4],
+    pub sphere_centers: [[f32; 4]; 5],
     pub sphere_radius: f32,
     pub time: f32,
     pub shape_type: i32,
-    pub texture_type: i32,  // 0=Glass, 1=Wood, 2=Steel, 3=Ice
+    pub texture_type: i32,
+    pub object_count: i32,
+    pub _padding: [f32; 3],
     pub light_color: [f32; 4],
 }
 
@@ -34,11 +37,13 @@ impl Default for CommonUniforms {
             wall_height: 0.4,
             pool_size: [1.0, 1.0],
             light_dir: [-0.577, 0.577, 0.577, 0.0],
-            sphere_center: [0.0, 0.0, 0.0, 1.0],
+            sphere_centers: [[0.0; 4]; 5],
             sphere_radius: 0.25,
             time: 0.0,
             shape_type: 0,
             texture_type: 0,
+            object_count: 1,
+            _padding: [0.0; 3],
             light_color: [1.0, 1.0, 1.0, 1.0],
         }
     }
@@ -148,7 +153,6 @@ pub struct Renderer {
     pub wall_height: f32,
 
     // Sphere (duck) state
-    pub sphere_center: Vec3,
     pub sphere_radius: f32,
 }
 
@@ -654,13 +658,14 @@ impl Renderer {
             pool_length: 2.0,
             pool_height: 1.0,
             wall_height: 0.4,
-            sphere_center: Vec3::ZERO,
             sphere_radius: 0.25,
         }
     }
 
+
+
     pub fn update_object_mesh(&mut self, device: &wgpu::Device, shape: &str) {
-        let (mut vertices, indices) = match shape {
+        let (vertices, indices) = match shape {
             "Cube" => {
                 let (mut v, i) = Self::create_cube_mesh();
                 // Normalize cube to fit in unit sphere (scale by 1/sqrt(3))
@@ -1006,11 +1011,12 @@ impl Renderer {
         &mut self,
         queue: &wgpu::Queue,
         camera: &Camera,
-        sphere_center: Vec3,
+        objects: &[ObjectState],
         sphere_radius: f32,
         time: f32,
         shape_type: i32,
         texture_type: i32,
+        light_color: [f32; 3],
     ) {
         self.camera_uniform.update(camera);
         queue.write_buffer(
@@ -1019,17 +1025,26 @@ impl Renderer {
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
 
+        // Populate centers array
+        let mut centers = [[0.0f32; 4]; 5];
+        let count = objects.len().min(5);
+        for i in 0..count {
+            centers[i] = [objects[i].center.x, objects[i].center.y, objects[i].center.z, 0.0];
+        }
+
         self.common_uniform.pool_height = self.pool_height;
         self.common_uniform.wall_height = self.wall_height;
         self.common_uniform.pool_size = [self.pool_width / 2.0, self.pool_length / 2.0];
         self.common_uniform.light_dir = [self.light_dir.x, self.light_dir.y, self.light_dir.z, 0.0];
-        self.common_uniform.sphere_center = [sphere_center.x, sphere_center.y, sphere_center.z, 1.0];
+        self.common_uniform.sphere_centers = centers;
         self.common_uniform.sphere_radius = sphere_radius;
         self.common_uniform.time = time;
         self.common_uniform.shape_type = shape_type;
         self.common_uniform.texture_type = texture_type;
+        self.common_uniform.object_count = count as i32;
+        self.common_uniform.light_color = [light_color[0], light_color[1], light_color[2], 1.0];
 
-        self.sphere_center = sphere_center;
+        // self.sphere_center is no longer tracked per object in Renderer struct
         self.sphere_radius = sphere_radius;
 
         queue.write_buffer(
@@ -1181,7 +1196,7 @@ impl Renderer {
         pass.set_bind_group(1, &texture_bind_group, &[]);
         pass.set_vertex_buffer(0, self.sphere_vertex_buffer.slice(..));
         pass.set_index_buffer(self.sphere_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..self.sphere_index_count, 0, 0..1);
+        pass.draw_indexed(0..self.sphere_index_count, 0, 0..self.common_uniform.object_count as u32);
 
         // Render water surface
         pass.set_pipeline(&self.water_pipeline);

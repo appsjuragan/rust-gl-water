@@ -27,6 +27,7 @@ pub struct AppConfig {
     pub shape: Shape,
     pub texture: Texture,
     pub light_color: [u8; 3],
+    pub object_count: usize,
 }
 
 impl Default for AppConfig {
@@ -36,6 +37,7 @@ impl Default for AppConfig {
             shape: Shape::Sphere,
             texture: Texture::Glass,
             light_color: [255, 255, 255],
+            object_count: 1,
         }
     }
 }

@@ -1,6 +1,5 @@
 //! Water simulation module - GPU-based wave simulation using ping-pong textures
 
-use glam::Vec3;
 use wgpu::util::DeviceExt;
 
 use crate::shaders::water_sim::{DROP_SHADER, NORMAL_SHADER, SPHERE_VOLUME_SHADER, UPDATE_SHADER};
@@ -62,14 +61,24 @@ struct UpdateUniforms {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct SphereVolumeUniforms {
+struct ObjectTransition {
     old_center: [f32; 4],
     new_center: [f32; 4],
-    radius: f32,
     strength: f32,
+    _padding: [f32; 3],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct SphereVolumeUniforms {
+    objects: [ObjectTransition; 5],
+    radius: f32,
+    _pad0: f32, // Pad to 8-byte alignment for pool_size (vec2)
     pool_size: [f32; 2],
     shape_type: i32,
-    _padding: [f32; 3],
+    object_count: i32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 impl Water {
@@ -150,13 +159,19 @@ impl Water {
         let sphere_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sphere Volume Uniforms"),
             contents: bytemuck::cast_slice(&[SphereVolumeUniforms {
-                old_center: [0.0; 4],
-                new_center: [0.0; 4],
+                objects: [ObjectTransition {
+                    old_center: [0.0; 4],
+                    new_center: [0.0; 4],
+                    strength: 0.0,
+                    _padding: [0.0; 3],
+                }; 5],
                 radius: 0.25,
-                strength: 0.04,
+                _pad0: 0.0,
                 pool_size: [pool_width, pool_length],
                 shape_type: 0,
-                _padding: [0.0; 3],
+                object_count: 0,
+                _pad1: 0.0,
+                _pad2: 0.0,
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -467,30 +482,52 @@ impl Water {
 
 
 
-    /// Move sphere through water (creates displacement)
-    pub fn move_sphere(
+    /// Move multiple objects through water (creates displacement)
+    pub fn move_objects(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        old_center: Vec3,
-        new_center: Vec3,
+        objects: &[crate::physics::ObjectState],
+        impact_strength: f32,
         radius: f32,
-        strength: f32,
         shape_type: i32,
     ) {
         // Normalize coordinates
         let scale_x = self.pool_width / 2.0;
         let scale_z = self.pool_length / 2.0;
 
+        let mut object_transitions = [ObjectTransition {
+            old_center: [0.0; 4],
+            new_center: [0.0; 4],
+            strength: 0.0,
+            _padding: [0.0; 3],
+        }; 5];
+
+        let count = objects.len().min(5);
+        for i in 0..count {
+            let obj = &objects[i];
+            let displacement = (obj.center - obj.old_center).length();
+            let speed_boost = 1.0 + displacement * 50.0;
+            let dynamic_strength = impact_strength * speed_boost;
+
+            object_transitions[i] = ObjectTransition {
+                old_center: [obj.old_center.x / scale_x, obj.old_center.y, obj.old_center.z / scale_z, 0.0],
+                new_center: [obj.center.x / scale_x, obj.center.y, obj.center.z / scale_z, 0.0],
+                strength: dynamic_strength,
+                _padding: [0.0; 3],
+            };
+        }
+
         let uniforms = SphereVolumeUniforms {
-            old_center: [old_center.x / scale_x, old_center.y, old_center.z / scale_z, 0.0],
-            new_center: [new_center.x / scale_x, new_center.y, new_center.z / scale_z, 0.0],
+            objects: object_transitions,
             radius,
-            strength,
+            _pad0: 0.0,
             pool_size: [self.pool_width, self.pool_length],
             shape_type,
-            _padding: [0.0; 3],
+            object_count: count as i32,
+            _pad1: 0.0,
+            _pad2: 0.0,
         };
 
         queue.write_buffer(&self.sphere_uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
@@ -500,9 +537,9 @@ impl Water {
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Sphere Pass"),
+                label: Some("Sphere Volume Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: target_view,
+                    view: &target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,

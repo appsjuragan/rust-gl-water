@@ -1,6 +1,7 @@
 //! Input module - handles mouse/keyboard input and raycasting
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
+use crate::physics::ObjectState;
 
 /// Interaction modes
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -56,7 +57,7 @@ impl InputManager {
         let ndc = self.screen_to_ndc(x, y);
         self.mouse_point = self.raycast_water_plane(ndc, view_proj_inv);
     }
-    
+
     /// Handle mouse button press
     pub fn on_mouse_down(
         &mut self,
@@ -64,11 +65,11 @@ impl InputManager {
         y: f32,
         view_proj_inv: Mat4,
         view_dir: Vec3,
-        sphere_center: Vec3,
+        objects: &[ObjectState],
         sphere_radius: f32,
         pool_width: f32,
         pool_length: f32,
-    ) {
+    ) -> Option<usize> {
         self.mouse_pressed = true;
         self.mouse_pos = Vec2::new(x, y);
         self.prev_mouse_pos = self.mouse_pos;
@@ -76,14 +77,29 @@ impl InputManager {
         let ndc = self.screen_to_ndc(x, y);
         let ray = self.get_ray(ndc, view_proj_inv);
         
-        // 1. Hit test sphere
-        if let Some(hit) = self.ray_sphere_intersection(ray.0, ray.1, sphere_center, sphere_radius) {
-            self.mode = InteractionMode::MoveSphere;
-            self.prev_hit = hit;
-            self.plane_normal = -view_dir;
+        // 1. Hit test spheres
+        let mut best_idx = None;
+        let mut best_dist = f32::MAX;
+        
+        for (i, obj) in objects.iter().enumerate() {
+            if let Some(hit) = self.ray_sphere_intersection(ray.0, ray.1, obj.center, sphere_radius) {
+                let dist = (hit - ray.0).length_squared();
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_idx = Some(i);
+                    self.prev_hit = hit;
+                }
+            }
         }
+
+        if let Some(idx) = best_idx {
+            self.mode = InteractionMode::MoveSphere;
+            self.plane_normal = -view_dir;
+            return Some(idx);
+        }
+
         // 2. Hit test water plane
-        else if let Some(point) = self.raycast_water_plane(ndc, view_proj_inv) {
+        if let Some(point) = self.raycast_water_plane(ndc, view_proj_inv) {
             let half_w = pool_width / 2.0;
             let half_l = pool_length / 2.0;
             
@@ -95,6 +111,8 @@ impl InputManager {
         } else {
             self.mode = InteractionMode::OrbitCamera;
         }
+        
+        None
     }
     
     /// Handle mouse button release
