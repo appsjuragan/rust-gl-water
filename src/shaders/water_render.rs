@@ -86,26 +86,105 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
     let hit = origin + ray * t_final;
     
     if (is_shape) {{
-        // Calculate normal using SDF gradient
+        // Glass-like refraction through the object
         let shape_type = uniforms.shape_type;
         let radius = uniforms.sphere_radius;
-        let p = hit - uniforms.sphere_center.xyz;
+        let center = uniforms.sphere_center.xyz;
+        let p = hit - center;
+        
+        // Calculate entry normal using SDF gradient
         let e = 0.001;
         let dx = get_shape_dist(p + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(p - vec3<f32>(e,0.0,0.0), shape_type, radius);
         let dy = get_shape_dist(p + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(p - vec3<f32>(0.0,e,0.0), shape_type, radius);
         let dz = get_shape_dist(p + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(p - vec3<f32>(0.0,0.0,e), shape_type, radius);
         let normal = normalize(vec3<f32>(dx, dy, dz));
-
-        let diffuse = max(0.0, dot(normal, light));
-        let ambient = 0.4;
-        let object_color = vec3<f32>(0.6, 0.7, 0.8); // Light blue-grey object
         
-        // Simple Phong
-        let view = normalize(origin - hit);
-        let halfway = normalize(light + view);
-        let spec = pow(max(0.0, dot(normal, halfway)), 32.0);
+        // Fresnel effect
+        let fresnel = 0.1 + 0.9 * pow(1.0 - max(0.0, dot(-ray, normal)), 3.0);
         
-        color = object_color * (ambient + diffuse * uniforms.light_color.rgb) + uniforms.light_color.rgb * spec * 0.5;
+        // Reflection off glass surface
+        let reflect_dir = reflect(ray, normal);
+        
+        // Refraction into glass (water IOR 1.333, glass IOR ~1.5)
+        let ior_water_to_glass = 1.333 / 1.5;
+        let refract_dir_in = refract(ray, normal, ior_water_to_glass);
+        
+        var refract_color = vec3<f32>(0.0);
+        var reflect_color = vec3<f32>(0.0);
+        
+        if (length(refract_dir_in) > 0.001) {{
+            // Find exit point through glass
+            let local_origin = hit - center;
+            let t_exit = get_exit_dist_shape(local_origin, refract_dir_in, shape_type, radius);
+            
+            if (t_exit > 0.001) {{
+                let exit_point = hit + refract_dir_in * t_exit;
+                
+                // Calculate exit normal
+                let local_exit = exit_point - center;
+                let dx2 = get_shape_dist(local_exit + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(e,0.0,0.0), shape_type, radius);
+                let dy2 = get_shape_dist(local_exit + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,e,0.0), shape_type, radius);
+                let dz2 = get_shape_dist(local_exit + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,0.0,e), shape_type, radius);
+                let exit_normal = normalize(vec3<f32>(dx2, dy2, dz2));
+                
+                // Refract out of glass back into water
+                let ior_glass_to_water = 1.5 / 1.333;
+                let refract_dir_out = refract(refract_dir_in, -exit_normal, ior_glass_to_water);
+                
+                if (length(refract_dir_out) > 0.001) {{
+                    // Trace ray to background (pool floor/walls)
+                    let t_bg = intersect_cube(exit_point, refract_dir_out, cube_min, cube_max);
+                    let bg_hit = exit_point + refract_dir_out * t_bg.y;
+                    
+                    let coord = bg_hit.xz / (pool_size * 2.0) + 0.5;
+                    let water_info = textureSample(water_texture, water_sampler, coord);
+                    let caustic = textureSample(caustic_texture, caustic_sampler, coord);
+                    
+                    var tile_coord: vec2<f32>;
+                    if abs(bg_hit.x) > pool_size.x - 0.01 {{
+                        tile_coord = bg_hit.yz * 0.5 + vec2<f32>(1.0, 0.5);
+                    }} else if abs(bg_hit.z) > pool_size.y - 0.01 {{
+                        tile_coord = bg_hit.yx * 0.5 + vec2<f32>(1.0, 0.5);
+                    }} else {{
+                        tile_coord = bg_hit.xz * 0.5 + 0.5;
+                    }}
+                    let tile_color = textureSample(tile_texture, tile_sampler, tile_coord).rgb;
+                    refract_color = get_wall_color(bg_hit, uniforms, water_info, caustic, tile_color);
+                    
+                    // Attenuate based on distance through glass (slight tint)
+                    refract_color *= exp(-vec3<f32>(0.15, 0.08, 0.02) * t_exit * 3.0);
+                }} else {{
+                    // Total internal reflection - use a subtle underwater color
+                    refract_color = vec3<f32>(0.3, 0.5, 0.6);
+                }}
+            }}
+        }} else {{
+            // Total internal reflection at entry
+            refract_color = vec3<f32>(0.3, 0.5, 0.6);
+        }}
+        
+        // Calculate reflection color (trace reflected ray)
+        let t_refl = intersect_cube(hit, reflect_dir, cube_min, cube_max);
+        let refl_hit = hit + reflect_dir * t_refl.y;
+        let refl_coord = refl_hit.xz / (pool_size * 2.0) + 0.5;
+        let refl_water_info = textureSample(water_texture, water_sampler, refl_coord);
+        let refl_caustic = textureSample(caustic_texture, caustic_sampler, refl_coord);
+        var refl_tile_coord: vec2<f32>;
+        if abs(refl_hit.x) > pool_size.x - 0.01 {{
+            refl_tile_coord = refl_hit.yz * 0.5 + vec2<f32>(1.0, 0.5);
+        }} else if abs(refl_hit.z) > pool_size.y - 0.01 {{
+            refl_tile_coord = refl_hit.yx * 0.5 + vec2<f32>(1.0, 0.5);
+        }} else {{
+            refl_tile_coord = refl_hit.xz * 0.5 + 0.5;
+        }}
+        let refl_tile_color = textureSample(tile_texture, tile_sampler, refl_tile_coord).rgb;
+        reflect_color = get_wall_color(refl_hit, uniforms, refl_water_info, refl_caustic, refl_tile_color);
+        
+        // Specular highlight
+        let spec = pow(max(0.0, dot(reflect_dir, light)), 64.0);
+        
+        // Mix refraction and reflection based on Fresnel
+        color = mix(refract_color, reflect_color, fresnel) + uniforms.light_color.rgb * spec * 0.3;
         
     }} else if ray.y < 0.0 {{
         // Looking down - hit floor/walls

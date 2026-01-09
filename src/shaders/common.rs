@@ -195,14 +195,25 @@ fn get_object_color_refraction(point: vec3<f32>, uniforms: CommonUniforms, water
 
 fn intersect_shape_any(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, radius: f32, shape_type: i32) -> f32 {
     // Check bounding sphere first
-    let t_sphere = intersect_sphere(origin, ray, center, radius * 1.5);
-    if (t_sphere < 0.0) { return -1.0; }
+    let bound_r = radius * 1.5;
+    var t = 0.0;
     
-    // If shape is sphere, return t_sphere
-    if (shape_type == 0) { return t_sphere; }
+    // Check if we are inside the bounding sphere
+    let dist_sq = dot(origin - center, origin - center);
+    if (dist_sq > bound_r * bound_r) {
+        // Outside: check intersection with bounding sphere
+        let t_sphere = intersect_sphere(origin, ray, center, bound_r);
+        if (t_sphere < 0.0) { return -1.0; }
+        t = max(0.0, t_sphere - 0.1);
+    }
     
-    // Otherwise raymarch from t_sphere (entry point of bounding sphere)
-    var t = max(0.0, t_sphere - 0.1); 
+    // If shape is sphere, return analytic intersection
+    if (shape_type == 0) { 
+        if (dist_sq < radius * radius) { return 0.0; } // Inside sphere
+        return intersect_sphere(origin, ray, center, radius); 
+    }
+    
+    // Otherwise raymarch from t (entry point or 0.0) 
     // transform origin/ray to local space of shape
     let local_origin = origin - center;
     
@@ -239,33 +250,24 @@ fn get_wall_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f
         normal = vec3<f32>(0.0, 1.0, 0.0);
     }
     
-    scale /= length(point);
-    // scale *= 1.0 - 0.9 / pow(length(point - sphere_center) / sphere_radius, 4.0);
-    // The above line is a fake AO/Shadow blob. Replace with shape aware.
-    // Approximate distance from shape center:
-    let dist_to_shape = length(point - sphere_center);
-    if (dist_to_shape < sphere_radius * 1.5) {
-         scale *= 0.2; // Hard shadow proxy
-    }
+    // scale /= length(point); // Removed to fix ghost shadow/vignette artifact
     
     let refracted_light = -refract(-light, vec3<f32>(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);
     let diffuse = max(0.0, dot(refracted_light, normal));
     let lit_diffuse = diffuse * uniforms.light_color.rgb;
     
+    // Calculate shadow using proper shape-aware intersection
+    var shadow = 1.0;
+    let hit_shape = intersect_shape_any(point, refracted_light, sphere_center, sphere_radius, shape_type);
+    if (hit_shape > 0.0) { 
+        shadow = 0.2; // In shadow
+    }
+    
     if point.y < water_info.r {
-        scale += lit_diffuse * caustic_sample.r * 2.0 * caustic_sample.g;
+        // Underwater: apply caustics with shadow
+        scale += lit_diffuse * caustic_sample.r * 2.0 * caustic_sample.g * shadow;
     } else {
-        // Shadow calc for above water
-        let cube_min = vec3<f32>(-pool_size.x, -pool_height, -pool_size.y);
-        let cube_max = vec3<f32>(pool_size.x, wall_height, pool_size.y);
-        let t = intersect_cube(point, refracted_light, cube_min, cube_max);
-        
-        // Check real shadow
-        // Intersect ray from point towards light with shape
-        let hit_shape = intersect_shape_any(point, normalize(light), sphere_center, sphere_radius, shape_type);
-        var shadow = 1.0;
-        if (hit_shape > 0.0) { shadow = 0.0; }
-        
+        // Above water: use direct lighting with shadow
         scale += lit_diffuse * shadow * 0.5;
     }
     

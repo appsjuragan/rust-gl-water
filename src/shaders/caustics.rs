@@ -81,19 +81,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {{
     
     var caustic_intensity = old_area / new_area * 0.2;
     
-    // Shadow calculation based on sphere
-    let sphere_center = uniforms.sphere_center.xyz;
-    let sphere_radius = uniforms.sphere_radius;
+    // Shadow calculation removed (handled in main shader)
+    var shadow = 1.0;
+    
     let light = uniforms.light_dir.xyz;
     let refracted_light = refract(-light, vec3<f32>(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);
-    
-    let dir = (sphere_center - in.new_pos) / sphere_radius;
-    let area = cross(dir, refracted_light);
-    var shadow = dot(area, area);
-    let dist = dot(dir, -refracted_light);
-    shadow = 1.0 + (shadow - 1.0) / (0.05 + dist * 0.025);
-    shadow = clamp(1.0 / (1.0 + exp(-shadow)), 0.0, 1.0);
-    shadow = mix(1.0, shadow, clamp(dist * 2.0, 0.0, 1.0));
     
     // Height-based attenuation
     let pool_size = uniforms.pool_size;
