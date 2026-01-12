@@ -5,8 +5,11 @@ pub struct UiRenderer {
     bind_group: wgpu::BindGroup,
     texture: wgpu::Texture,
     vertex_buffer: wgpu::Buffer,
-    pub show_fps: bool,
-    fps_value: u32,
+    pub show_ui: bool,
+    fps_value: i32,
+    gravity_value: bool,
+    repulsion_value: bool,
+    paused_value: bool,
 }
 
 #[repr(C)]
@@ -18,10 +21,10 @@ struct UiVertex {
 
 impl UiRenderer {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
-        // Create texture for text
+        // Create texture for text - larger to fit status bar
         let texture_size = wgpu::Extent3d {
-            width: 128,
-            height: 32,
+            width: 512,
+            height: 64,
             depth_or_array_layers: 1,
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -30,7 +33,7 @@ impl UiRenderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm, // Single channel for alpha/intensity
+            format: wgpu::TextureFormat::R8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -163,17 +166,25 @@ impl UiRenderer {
             cache: None,
         });
         
-        // Quad positioned at top-right corner of screen
-        // Standard UV mapping: left=0, right=1, top=0, bottom=1
+        // Quads for UI elements
+        // 1. Top-right FPS counter
+        // 2. Bottom status bar
         let vertices = [
-            // First triangle
-            UiVertex { pos: [0.70, 0.95], uv: [0.0, 0.0] },  // top-left
-            UiVertex { pos: [0.70, 0.85], uv: [0.0, 1.0] },  // bottom-left
-            UiVertex { pos: [0.98, 0.95], uv: [1.0, 0.0] },  // top-right
-            // Second triangle
-            UiVertex { pos: [0.98, 0.95], uv: [1.0, 0.0] },  // top-right
-            UiVertex { pos: [0.70, 0.85], uv: [0.0, 1.0] },  // bottom-left
-            UiVertex { pos: [0.98, 0.85], uv: [1.0, 1.0] },  // bottom-right
+            // FPS Counter Quad (top right)
+            UiVertex { pos: [0.70, 0.95], uv: [0.0, 0.0] },
+            UiVertex { pos: [0.70, 0.85], uv: [0.0, 0.5] },
+            UiVertex { pos: [0.98, 0.95], uv: [1.0, 0.0] },
+            UiVertex { pos: [0.98, 0.95], uv: [1.0, 0.0] },
+            UiVertex { pos: [0.70, 0.85], uv: [0.0, 0.5] },
+            UiVertex { pos: [0.98, 0.85], uv: [1.0, 0.5] },
+
+            // Status Bar Quad (bottom left)
+            UiVertex { pos: [-0.98, -0.85], uv: [0.0, 0.5] },
+            UiVertex { pos: [-0.98, -0.95], uv: [0.0, 1.0] },
+            UiVertex { pos: [0.0, -0.85], uv: [1.0, 0.5] },
+            UiVertex { pos: [0.0, -0.85], uv: [1.0, 0.5] },
+            UiVertex { pos: [-0.98, -0.95], uv: [0.0, 1.0] },
+            UiVertex { pos: [0.0, -0.95], uv: [1.0, 1.0] },
         ];
         
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -187,25 +198,33 @@ impl UiRenderer {
             bind_group,
             texture,
             vertex_buffer,
-            show_fps: true,
-            fps_value: 0,
+            show_ui: true,
+            fps_value: -1,
+            gravity_value: false,
+            repulsion_value: false,
+            paused_value: false,
         }
     }
     
-    pub fn update(&mut self, queue: &wgpu::Queue, fps: i32) {
-        if fps as u32 == self.fps_value {
+    pub fn update(&mut self, queue: &wgpu::Queue, fps: i32, gravity: bool, repulsion: bool, paused: bool) {
+        if fps == self.fps_value 
+            && gravity == self.gravity_value 
+            && repulsion == self.repulsion_value 
+            && paused == self.paused_value 
+        {
             return;
         }
-        self.fps_value = fps as u32;
         
-        // Draw text "FPS: <fps>" at 2x scale
-        let s = format!("FPS: {}", fps);
-        let bytes_per_row = 256; // Must be multiple of 256
-        let scale = 2; // 2x font scale
-        let mut pixels = vec![0u8; 32 * bytes_per_row];
+        self.fps_value = fps;
+        self.gravity_value = gravity;
+        self.repulsion_value = repulsion;
+        self.paused_value = paused;
         
-        let draw_char = |c: char, ox: usize, pixels: &mut [u8]| {
-            // 5x7 font patterns - each byte is a column, bit 0 = top row
+        let bytes_per_row = 512; // Adjusted for texture width
+        let mut pixels = vec![0u8; 64 * bytes_per_row];
+        let scale = 2;
+
+        let draw_char = |c: char, ox: usize, oy: usize, pixels: &mut [u8]| {
             let pattern: &[u8] = match c {
                 '0' => &[0x3E, 0x51, 0x49, 0x45, 0x3E],
                 '1' => &[0x00, 0x42, 0x7F, 0x40, 0x00],
@@ -220,7 +239,23 @@ impl UiRenderer {
                 'F' => &[0x7F, 0x09, 0x09, 0x09, 0x01],
                 'P' => &[0x7F, 0x09, 0x09, 0x09, 0x06],
                 'S' => &[0x46, 0x49, 0x49, 0x49, 0x31],
+                'G' => &[0x3E, 0x41, 0x49, 0x51, 0x32],
+                'R' => &[0x7F, 0x09, 0x19, 0x29, 0x46],
+                'A' => &[0x7C, 0x12, 0x11, 0x12, 0x7C],
+                'V' => &[0x1F, 0x20, 0x40, 0x20, 0x1F],
+                'I' => &[0x41, 0x7F, 0x41],
+                'T' => &[0x01, 0x01, 0x7F, 0x01, 0x01],
+                'Y' => &[0x03, 0x04, 0x78, 0x04, 0x03],
+                'M' => &[0x7F, 0x02, 0x0C, 0x02, 0x7F],
+                'O' => &[0x3E, 0x41, 0x41, 0x41, 0x3E],
+                'U' => &[0x3F, 0x40, 0x40, 0x40, 0x3F],
+                'E' => &[0x7F, 0x49, 0x49, 0x49, 0x41],
+                'C' => &[0x3E, 0x41, 0x41, 0x41, 0x22],
+                'H' => &[0x7F, 0x08, 0x08, 0x08, 0x7F],
+                'N' => &[0x7F, 0x04, 0x08, 0x10, 0x7F],
+                'L' => &[0x7F, 0x40, 0x40, 0x40, 0x40],
                 ':' => &[0x00, 0x36, 0x36, 0x00, 0x00],
+                '|' => &[0x00, 0x00, 0x7F, 0x00, 0x00],
                 ' ' => &[0x00, 0x00, 0x00, 0x00, 0x00],
                  _  => &[0x00, 0x00, 0x00, 0x00, 0x00],
             };
@@ -228,12 +263,11 @@ impl UiRenderer {
             for (col_idx, &col_byte) in pattern.iter().enumerate() {
                 for y in 0..7 {
                     if (col_byte >> y) & 1 == 1 {
-                        // Draw scaled pixel (2x2 block)
                         for sy in 0..scale {
                             for sx in 0..scale {
                                 let px = ox + col_idx * scale + sx;
-                                let py = 4 + y * scale + sy;
-                                if px < 128 && py < 32 {
+                                let py = oy + y * scale + sy;
+                                if px < bytes_per_row && py < 64 {
                                     pixels[py * bytes_per_row + px] = 255;
                                 }
                             }
@@ -242,13 +276,27 @@ impl UiRenderer {
                 }
             }
         };
-        
+
+        // Line 1: FPS (Top portion of texture)
+        let s1 = format!("FPS: {}", fps);
         let mut x = 4;
-        for c in s.chars() {
-            draw_char(c, x, &mut pixels);
-            x += 6 * scale; // Character width (5) + spacing (1), scaled
+        for c in s1.chars() {
+            draw_char(c, x, 4, &mut pixels);
+            x += 6 * scale;
         }
+
+        // Line 2: Status Bar (Bottom portion of texture)
+        let g_str = if gravity { "ON" } else { "OFF" };
+        let m_str = if repulsion { "CHASE" } else { "GRAB" };
+        let p_str = if paused { "PAUSED" } else { "RUNNING" };
+        let s2 = format!("GRAVITY: {} | MOUSE: {} | {}", g_str, m_str, p_str);
         
+        x = 4;
+        for c in s2.chars() {
+            draw_char(c, x, 36, &mut pixels); // Offset oy to 36 for bottom line
+            x += (if c == 'I' || c == '|' { 4 } else { 6 }) * scale;
+        }
+
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 texture: &self.texture,
@@ -260,22 +308,22 @@ impl UiRenderer {
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: Some(bytes_per_row as u32),
-                rows_per_image: Some(32),
+                rows_per_image: Some(64),
             },
             wgpu::Extent3d {
-                width: 128,
-                height: 32,
+                width: 512,
+                height: 64,
                 depth_or_array_layers: 1,
             }
         );
     }
     
     pub fn render<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        if self.show_fps {
+        if self.show_ui {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            pass.draw(0..6, 0..1);
+            pass.draw(0..12, 0..1); // 12 vertices for 2 quads
         }
     }
 }

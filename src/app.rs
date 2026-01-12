@@ -460,7 +460,13 @@ impl Application {
         );
 
         // Update FPS UI
-        gfx.ui.update(&gfx.queue, self.current_fps);
+        gfx.ui.update(
+            &gfx.queue, 
+            self.current_fps, 
+            self.physics.gravity_enabled, 
+            self.physics.mouse_repulsion_enabled, 
+            self.paused
+        );
 
         let mut encoder = gfx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
@@ -716,7 +722,7 @@ impl ApplicationHandler for Application {
                                 }
                                 "p" | "P" => {
                                     if let Some(gfx) = &mut self.gfx {
-                                        gfx.ui.show_fps = !gfx.ui.show_fps;
+                                        gfx.ui.show_ui = !gfx.ui.show_ui;
                                     }
                                 }
                                 "o" | "O" => {
