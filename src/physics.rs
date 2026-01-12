@@ -38,6 +38,7 @@ pub struct PhysicsEngine {
     pub impact_strength: f32,
     pub enabled: bool,
     pub gravity_enabled: bool,
+    pub mouse_repulsion_enabled: bool,
 }
 
 impl Default for PhysicsEngine {
@@ -61,6 +62,7 @@ impl Default for PhysicsEngine {
             impact_strength: 0.04,
             enabled: true,
             gravity_enabled: true,
+            mouse_repulsion_enabled: true,
         }
     }
 }
@@ -92,46 +94,61 @@ impl PhysicsEngine {
                 continue;
             }
 
-            // Calculate how much of sphere is underwater
-            let percent_underwater = ((water_height + self.radius - obj.center.y) 
-                / (2.0 * self.radius))
-                .clamp(0.0, 1.0);
+            // 1. Calculate forces
+            let mut force = Vec3::ZERO;
+
+            // Gravity
+            if self.gravity_enabled {
+                force += self.gravity;
+            }
+
+            // Buoyancy
+            // percent_underwater = 0 at y = center + radius, 1 at y = center - radius
+            let submerged_depth = (water_height + self.radius - obj.center.y).max(0.0);
+            let percent_underwater = (submerged_depth / (2.0 * self.radius)).min(1.0);
             
-            let buoyancy_factor = 1.0 / (1.0 - self.float_ratio);
-            
-            // Apply gravity and buoyancy (vertical)
-            let effective_gravity = if self.gravity_enabled { self.gravity } else { Vec3::ZERO };
-            let g_term = effective_gravity * (dt - buoyancy_factor * dt * percent_underwater);
-            obj.velocity += g_term;
-            
-            // Mouse repulsion (horizontal)
-            if let Some(mouse) = mouse_point {
-                let mut dist_vec = obj.center - mouse;
-                dist_vec.y = 0.0; // Horizontal only
-                let dist = dist_vec.length();
-                let influence_radius = 1.0;
+            // Equilibrium at float_ratio: Gravity + Buoyancy = 0
+            // Buoyancy = -gravity * (percent / float_ratio)
+            if percent_underwater > 0.0 {
+                let buoyancy_force = -self.gravity * (percent_underwater / self.float_ratio);
+                force += buoyancy_force;
                 
-                if dist < influence_radius && dist > 0.001 {
-                    let push_strength = 2.0;
-                    let force = dist_vec.normalize() 
-                        * push_strength 
-                        * (1.0 - dist / influence_radius) 
-                        * dt;
-                    obj.velocity += force;
+                // Add vertical damping (viscosity)
+                force -= obj.velocity * (percent_underwater * 2.0);
+            }
+
+            // Mouse repulsion (horizontal) - can be toggled with 'L' key
+            if self.mouse_repulsion_enabled {
+                if let Some(mouse) = mouse_point {
+                    let mut dist_vec = obj.center - mouse;
+                    dist_vec.y = 0.0;
+                    let dist = dist_vec.length();
+                    let influence_radius = 1.0;
+                    
+                    if dist < influence_radius && dist > 0.001 {
+                        let push_strength = 15.0;
+                        let push_force = dist_vec.normalize() 
+                            * push_strength 
+                            * (1.0 - dist / influence_radius);
+                        force += push_force;
+                    }
                 }
             }
             
-            // Apply drag based on underwater percentage
-            if obj.velocity.length_squared() > 0.0 {
-                let drag = obj.velocity.normalize()
-                    * percent_underwater
-                    * dt
-                    * obj.velocity.dot(obj.velocity);
-                obj.velocity -= drag;
+            // Apply drag (quadratic)
+            if obj.velocity.length_squared() > 0.001 {
+                let speed = obj.velocity.length();
+                let drag_coeff = 0.5 + percent_underwater * 2.0;
+                let drag_force = -obj.velocity.normalize() * (speed * speed * drag_coeff);
+                force += drag_force;
             }
             
-            // Integrate position
+            // 2. Integrate (Semi-Implicit Euler)
+            obj.velocity += force * dt;
             obj.center += obj.velocity * dt;
+
+            // Add some global damping to prevent infinite energy
+            obj.velocity *= 0.995;
             
             // Wall collisions (X)
             let half_width = self.pool_width / 2.0;

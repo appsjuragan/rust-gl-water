@@ -163,27 +163,17 @@ impl UiRenderer {
             cache: None,
         });
         
-        // Quad for top right
-        // Screen coords: -1 to 1. Top right is (1, 1).
-        // Flip U coordinates to fix mirroring if needed
+        // Quad positioned at top-right corner of screen
+        // Standard UV mapping: left=0, right=1, top=0, bottom=1
         let vertices = [
-            UiVertex { pos: [0.75, 0.95], uv: [1.0, 0.0] }, // Top-Left of quad, UV Right? No, flip U. Left of quad = Right of texture implies mirror.
-            // Wait. If currently it IS mirrored, it means I mapped Left:0, Right:1, but it SHOWS Right-to-Left.
-            // So I should map Left:1, Right:0?
-            // Wait. If I want "F"(Left) to appear at Screen Left.
-            // Current: Left(0.75) -> U(0).
-            // Result: Mirrored. Means U(0) is appearing on Right? Or F is drawn backwards?
-            // If I flip U: Left(0.75) -> U(1). Right(0.95) -> U(0).
-            // Then Screen Left shows Texture Right. Screen Right shows Texture Left.
-            // If texture is "F P S", then Screen shows "S P F" (backwards string, forwards letters if flipped UV?).
-            
-            // Let's assume the safe fix for "Mirrored" text is flipping U.
-            UiVertex { pos: [0.75, 0.95], uv: [1.0, 0.0] }, 
-            UiVertex { pos: [0.75, 0.85], uv: [1.0, 1.0] }, 
-            UiVertex { pos: [0.95, 0.95], uv: [0.0, 0.0] }, 
-            UiVertex { pos: [0.95, 0.95], uv: [0.0, 0.0] },
-            UiVertex { pos: [0.75, 0.85], uv: [1.0, 1.0] },
-            UiVertex { pos: [0.95, 0.85], uv: [0.0, 1.0] },
+            // First triangle
+            UiVertex { pos: [0.70, 0.95], uv: [0.0, 0.0] },  // top-left
+            UiVertex { pos: [0.70, 0.85], uv: [0.0, 1.0] },  // bottom-left
+            UiVertex { pos: [0.98, 0.95], uv: [1.0, 0.0] },  // top-right
+            // Second triangle
+            UiVertex { pos: [0.98, 0.95], uv: [1.0, 0.0] },  // top-right
+            UiVertex { pos: [0.70, 0.85], uv: [0.0, 1.0] },  // bottom-left
+            UiVertex { pos: [0.98, 0.85], uv: [1.0, 1.0] },  // bottom-right
         ];
         
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -208,51 +198,55 @@ impl UiRenderer {
         }
         self.fps_value = fps as u32;
         
-        // Draw text "FPS: <fps>"
-        let s = format!("FPS:{}", fps);
+        // Draw text "FPS: <fps>" at 2x scale
+        let s = format!("FPS: {}", fps);
         let bytes_per_row = 256; // Must be multiple of 256
+        let scale = 2; // 2x font scale
         let mut pixels = vec![0u8; 32 * bytes_per_row];
         
-        // Simple 5x7 font rendering
-        // 0: 0x3E, 0x51, 0x49, 0x45, 0x3E -> ...
-        // Using a simpler approach: draw pixels for 0..9 and F, P, S, :
-        
         let draw_char = |c: char, ox: usize, pixels: &mut [u8]| {
+            // 5x7 font patterns - each byte is a column, bit 0 = top row
             let pattern: &[u8] = match c {
-                '0' => &[0x7C, 0x44, 0x44, 0x44, 0x7C], // 5 bytes, each byte is a column (5x8)
-                '1' => &[0x00, 0x44, 0x7C, 0x40, 0x00],
-                '2' => &[0x64, 0x4C, 0x54, 0x54, 0x24],
-                '3' => &[0x44, 0x44, 0x54, 0x54, 0x28],
-                '4' => &[0x1C, 0x10, 0x74, 0x10, 0x10],
-                '5' => &[0x5C, 0x54, 0x54, 0x54, 0x24],
-                '6' => &[0x7C, 0x54, 0x54, 0x54, 0x24],
-                '7' => &[0x44, 0x44, 0x54, 0x54, 0x7C],
-                '8' => &[0x28, 0x54, 0x54, 0x54, 0x28],
-                '9' => &[0x28, 0x54, 0x54, 0x54, 0x3C],
-                'F' => &[0x7F, 0x49, 0x49, 0x49, 0x41],
-                'P' => &[0x7F, 0x49, 0x49, 0x49, 0x30],
-                'S' => &[0x26, 0x49, 0x49, 0x49, 0x32],
+                '0' => &[0x3E, 0x51, 0x49, 0x45, 0x3E],
+                '1' => &[0x00, 0x42, 0x7F, 0x40, 0x00],
+                '2' => &[0x42, 0x61, 0x51, 0x49, 0x46],
+                '3' => &[0x21, 0x41, 0x45, 0x4B, 0x31],
+                '4' => &[0x18, 0x14, 0x12, 0x7F, 0x10],
+                '5' => &[0x27, 0x45, 0x45, 0x45, 0x39],
+                '6' => &[0x3C, 0x4A, 0x49, 0x49, 0x30],
+                '7' => &[0x01, 0x71, 0x09, 0x05, 0x03],
+                '8' => &[0x36, 0x49, 0x49, 0x49, 0x36],
+                '9' => &[0x06, 0x49, 0x49, 0x29, 0x1E],
+                'F' => &[0x7F, 0x09, 0x09, 0x09, 0x01],
+                'P' => &[0x7F, 0x09, 0x09, 0x09, 0x06],
+                'S' => &[0x46, 0x49, 0x49, 0x49, 0x31],
                 ':' => &[0x00, 0x36, 0x36, 0x00, 0x00],
+                ' ' => &[0x00, 0x00, 0x00, 0x00, 0x00],
                  _  => &[0x00, 0x00, 0x00, 0x00, 0x00],
             };
             
             for (col_idx, &col_byte) in pattern.iter().enumerate() {
                 for y in 0..7 {
                     if (col_byte >> y) & 1 == 1 {
-                        let px = ox + col_idx;
-                        let py = 10 + y; // Offset Y
-                        if px < 128 && py < 32 {
-                             pixels[py * bytes_per_row + px] = 255;
+                        // Draw scaled pixel (2x2 block)
+                        for sy in 0..scale {
+                            for sx in 0..scale {
+                                let px = ox + col_idx * scale + sx;
+                                let py = 4 + y * scale + sy;
+                                if px < 128 && py < 32 {
+                                    pixels[py * bytes_per_row + px] = 255;
+                                }
+                            }
                         }
                     }
                 }
             }
         };
         
-        let mut x = 10;
+        let mut x = 4;
         for c in s.chars() {
             draw_char(c, x, &mut pixels);
-            x += 7; // Spacing
+            x += 6 * scale; // Character width (5) + spacing (1), scaled
         }
         
         queue.write_texture(

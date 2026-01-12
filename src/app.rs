@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Instant;
 use glam::Vec3;
 
-
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -151,7 +150,6 @@ pub struct Application {
     config: AppConfig,
     last_frame: Instant,
     time: f32,
-    initialized: bool,
     paused: bool,
     frame_count: u32,
     accum_time: f32,
@@ -159,7 +157,9 @@ pub struct Application {
     run_config: RunConfig,
     current_fps: i32,
     dragged_object_index: Option<usize>,
+    physics_accumulator: f32,
 }
+
 
 impl Application {
     pub async fn new(_event_loop: &EventLoop<()>) -> Self {
@@ -172,21 +172,20 @@ impl Application {
             config: AppConfig::default(),
             last_frame: Instant::now(),
             time: 0.0,
-            initialized: false,
             paused: false,
             frame_count: 0,
             accum_time: 0.0,
-
             current_fps: 60,
             dragged_object_index: None,
             state: AppState::Configuring,
             run_config: RunConfig::default(),
+            physics_accumulator: 0.0,
         }
     }
 
     fn update(&mut self, dt: f32) {
         // Skip if time step is too large
-        if dt > 1.0 {
+        if dt > 0.5 {
             return;
         }
 
@@ -201,6 +200,22 @@ impl Application {
             self.accum_time -= 1.0;
         }
 
+        // Fixed timestep for physics and water simulation
+        const FIXED_DT: f32 = 1.0 / 60.0;
+        self.physics_accumulator += dt;
+
+        // Limit accumulator to prevent "spiral of death"
+        if self.physics_accumulator > 0.25 {
+            self.physics_accumulator = 0.25;
+        }
+
+        while self.physics_accumulator >= FIXED_DT {
+            self.step_physics(FIXED_DT);
+            self.physics_accumulator -= FIXED_DT;
+        }
+    }
+
+    fn step_physics(&mut self, dt: f32) {
         let gfx = match &mut self.gfx {
             Some(g) => g,
             None => return,
@@ -251,7 +266,8 @@ impl Application {
             label: Some("Sim Encoder"),
         });
 
-        // Step simulation multiple times for stability
+        // Step simulation - with fixed DT we only need a small fixed number
+        // Using 4 steps per fixed update (at 60Hz) for the classic wave look
         for _ in 0..4 {
             gfx.water.step_simulation(&gfx.device, &gfx.queue, &mut encoder);
         }
@@ -277,9 +293,6 @@ impl Application {
 
         gfx.queue.submit(Some(encoder.finish()));
     }
-
-
-
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let gfx = match &mut self.gfx {
@@ -515,8 +528,6 @@ impl Application {
 
         self.update_pool_dimensions();
     }
-
-
 }
 
 // Simple random number generator (for initial drops)
@@ -543,19 +554,11 @@ impl ApplicationHandler for Application {
         
         let gfx = pollster::block_on(GfxState::new(window.clone()));
         
-        
-        
         self.window = Some(window.clone());
         self.gfx = Some(gfx);
         
         let size = window.inner_size();
         self.on_resize(size.width, size.height);
-        
-        // Initial init for default settings
-        if !self.initialized {
-             // We don't init drops yet, wait for RUN
-        }
-        
         self.last_frame = Instant::now();
     }
 
@@ -697,10 +700,16 @@ impl ApplicationHandler for Application {
                         Key::Character(s) => {
                             match s.as_str() {
                                 "l" | "L" => {
+                                    // Update light direction to camera view
                                     if let Some(gfx) = &mut self.gfx {
                                         let dir = self.camera.target - self.camera.position();
                                         gfx.renderer.light_dir = dir.normalize();
                                     }
+                                }
+                                "k" | "K" => {
+                                    // Toggle mouse repulsion (makes it easier to grab objects)
+                                    self.physics.mouse_repulsion_enabled = !self.physics.mouse_repulsion_enabled;
+                                    log::info!("Mouse repulsion: {}", if self.physics.mouse_repulsion_enabled { "ON" } else { "OFF" });
                                 }
                                 "g" | "G" => {
                                     self.physics.gravity_enabled = !self.physics.gravity_enabled;

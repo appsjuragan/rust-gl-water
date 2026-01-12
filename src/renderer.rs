@@ -662,8 +662,6 @@ impl Renderer {
         }
     }
 
-
-
     pub fn update_object_mesh(&mut self, device: &wgpu::Device, shape: &str) {
         let (vertices, indices) = match shape {
             "Cube" => {

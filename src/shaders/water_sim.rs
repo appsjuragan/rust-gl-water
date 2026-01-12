@@ -97,21 +97,27 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let dy = vec2<f32>(0.0, uniforms.delta.y);
     
     let u = info.r;
-    let u_right = textureSample(input_texture, texture_sampler, in.uv + dx).r;
-    let u_left = textureSample(input_texture, texture_sampler, in.uv - dx).r;
-    let u_up = textureSample(input_texture, texture_sampler, in.uv + dy).r;
-    let u_down = textureSample(input_texture, texture_sampler, in.uv - dy).r;
     
-    // Weighted Laplacian for non-square aspect ratio
-    let fx = 1.0 / (uniforms.pool_size.x * uniforms.pool_size.x);
-    let fy = 1.0 / (uniforms.pool_size.y * uniforms.pool_size.y);
+    // 9-point Laplacian for better isotropic propagation
+    let u_r = textureSample(input_texture, texture_sampler, in.uv + dx).r;
+    let u_l = textureSample(input_texture, texture_sampler, in.uv - dx).r;
+    let u_u = textureSample(input_texture, texture_sampler, in.uv + dy).r;
+    let u_d = textureSample(input_texture, texture_sampler, in.uv - dy).r;
     
-    let spatial_average = ((u_left + u_right) * fx + (u_up + u_down) * fy) / (2.0 * (fx + fy));
+    let u_ur = textureSample(input_texture, texture_sampler, in.uv + dx + dy).r;
+    let u_ul = textureSample(input_texture, texture_sampler, in.uv - dx + dy).r;
+    let u_dr = textureSample(input_texture, texture_sampler, in.uv + dx - dy).r;
+    let u_dl = textureSample(input_texture, texture_sampler, in.uv - dx - dy).r;
     
-    // Wave equation update
-    info.g += (spatial_average - u) * 2.0;
-    info.g *= 0.995; // Damping
+    // Weights: 0.2 for direct neighbors, 0.05 for diagonals
+    let laplacian = (u_r + u_l + u_u + u_d) * 0.2 + (u_ur + u_ul + u_dr + u_dl) * 0.05 - u;
+    
+    // Wave equation update with slight numerical damping
+    // info.g is velocity, info.r is height
+    info.g += laplacian * 1.8; // Stiffness
+    info.g *= 0.992;           // Velocity damping
     info.r += info.g;
+    info.r *= 0.998;           // Height damping (helps stability)
     
     return info;
 }
@@ -250,21 +256,27 @@ fn get_shape_dist(p: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
 
 
 fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>, strength: f32) -> f32 {
-    // World position of this water column
-    let world_x = (uv.x * 2.0 - 1.0) * uniforms.pool_size.x / 2.0;
-    let world_z = (uv.y * 2.0 - 1.0) * uniforms.pool_size.y / 2.0;
+    // Convert UV (0..1) to normalized space (-1..1) to match center coordinates
+    let norm_x = uv.x * 2.0 - 1.0;
+    let norm_z = uv.y * 2.0 - 1.0;
     
-    let dx = world_x - center.x;
-    let dz = world_z - center.z;
+    // center.x and center.z are already in normalized -1..1 space
+    let dx = norm_x - center.x;
+    let dz = norm_z - center.z;
     let water_level = 0.0;
+    
+    // Scale radius to normalized space
+    let norm_radius = uniforms.radius / (uniforms.pool_size.x / 2.0);
     
     // Analytic Sphere
     if (uniforms.shape_type == 0) {
-        let r = uniforms.radius;
+        let r = norm_radius;  // Use normalized radius for XZ check
         let d2 = dx*dx + dz*dz;
         if (d2 > r*r) { return 0.0; }
         
-        let h_half = sqrt(r*r - d2);
+        // For height calculation, use world-space radius
+        let world_r = uniforms.radius;
+        let h_half = sqrt(world_r*world_r - d2 * (uniforms.pool_size.x / 2.0) * (uniforms.pool_size.x / 2.0));
         let top = center.y + h_half;
         let bot = center.y - h_half;
         
@@ -276,13 +288,15 @@ fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>, strength: f32) -> f32 {
     
     // Analytic Torus
     if (uniforms.shape_type == 1) {
-        let R = 0.7 * uniforms.radius;
-        let tube = 0.3 * uniforms.radius;
+        let R = 0.7 * norm_radius;
+        let tube = 0.3 * norm_radius;
         let dist = sqrt(dx*dx + dz*dz);
         let dist_from_ring = abs(dist - R);
         if (dist_from_ring > tube) { return 0.0; }
         
-        let h_half = sqrt(tube*tube - dist_from_ring*dist_from_ring);
+        let world_tube = 0.3 * uniforms.radius;
+        let world_dist_from_ring = dist_from_ring * (uniforms.pool_size.x / 2.0);
+        let h_half = sqrt(world_tube*world_tube - world_dist_from_ring*world_dist_from_ring);
         let top = center.y + h_half;
         let bot = center.y - h_half;
         
@@ -294,15 +308,14 @@ fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>, strength: f32) -> f32 {
     
     // Analytic Cube
     if (uniforms.shape_type == 3) {
-         let s = 0.577 * uniforms.radius;
-         // Soften cube edges slightly to prevent aliasing
+         let s = 0.577 * norm_radius;
          let edge = 0.02;
          let mask_x = 1.0 - smoothstep(s - edge, s, abs(dx));
          let mask_z = 1.0 - smoothstep(s - edge, s, abs(dz));
          
-         let h_half = s; // Cube is symmetric vertically
-         let top = center.y + h_half;
-         let bot = center.y - h_half;
+         let world_s = 0.577 * uniforms.radius;
+         let top = center.y + world_s;
+         let bot = center.y - world_s;
          
          let actual_top = min(top, water_level);
          let submerged_h = max(0.0, actual_top - bot);
@@ -311,9 +324,13 @@ fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>, strength: f32) -> f32 {
     }
     
     // Fallback Scan (Tetrahedron)
-    if (dx*dx + dz*dz > uniforms.radius * uniforms.radius * 2.5) {
+    if (dx*dx + dz*dz > norm_radius * norm_radius * 2.5) {
         return 0.0;
     }
+    
+    // Scale dx, dz back to world space for SDF evaluation
+    let world_dx = dx * (uniforms.pool_size.x / 2.0);
+    let world_dz = dz * (uniforms.pool_size.y / 2.0);
     
     let steps = 20;
     let step_size = (uniforms.radius * 2.0) / f32(steps);
@@ -322,13 +339,11 @@ fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>, strength: f32) -> f32 {
     let smoothing = step_size * 0.8;
     
     for (var i = 0; i < steps; i++) {
-        let p = vec3<f32>(dx, current_y, dz);
+        let p = vec3<f32>(world_dx, current_y, world_dz);
         let d = get_shape_dist(p, uniforms.shape_type, uniforms.radius);
         
-        // Soft accumulation
         let weight = smoothstep(smoothing, -smoothing, d);
         
-        // Check if this sample is underwater
         let world_y = center.y + current_y;
         if (world_y < water_level) {
             thickness += weight * step_size;
