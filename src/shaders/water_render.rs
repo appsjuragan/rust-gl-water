@@ -82,11 +82,7 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         t_final = t.y;
     }}
     
-
-    
     var is_shape = false;
-    
-    // Check shape intersection
     let shape_res = intersect_shape_any(origin, ray, uniforms);
     let t_shape = shape_res.x;
     var shape_idx = -1;
@@ -97,8 +93,73 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
     }}
     
     let hit = origin + ray * t_final;
+    
+    if (is_shape) {{
+        // Material-dependent refraction through the object
+        let shape_type = uniforms.shape_type;
+        let radius = uniforms.sphere_radius;
+        
+        var center: vec3<f32>;
+        var rotation: vec4<f32>;
+        if (shape_idx == 0) {{
+            center = uniforms.sphere_centers[0].xyz;
+            rotation = uniforms.sphere_rotations[0];
+        }} else if (shape_idx == 1) {{
+            center = uniforms.sphere_centers[1].xyz;
+            rotation = uniforms.sphere_rotations[1];
+        }} else if (shape_idx == 2) {{
+            center = uniforms.sphere_centers[2].xyz;
+            rotation = uniforms.sphere_rotations[2];
+        }} else if (shape_idx == 3) {{
+            center = uniforms.sphere_centers[3].xyz;
+            rotation = uniforms.sphere_rotations[3];
+        }} else {{
+            center = uniforms.sphere_centers[4].xyz;
+            rotation = uniforms.sphere_rotations[4];
+        }}
+        
+        let inv_rotation = vec4<f32>(-rotation.xyz, rotation.w);
+        let local_p = rotate_vector(hit - center, inv_rotation);
+        
+        let mat = get_material_props(uniforms.texture_type);
+        
+        let e = 0.001;
+        let dx = get_shape_dist(local_p + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_p - vec3<f32>(e,0.0,0.0), shape_type, radius);
+        let dy = get_shape_dist(local_p + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_p - vec3<f32>(0.0,e,0.0), shape_type, radius);
+        let dz = get_shape_dist(local_p + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_p - vec3<f32>(0.0,0.0,e), shape_type, radius);
+        let local_normal = normalize(vec3<f32>(dx, dy, dz));
+        let normal = rotate_vector(local_normal, rotation);
+        
+        let base_fresnel = mat.specularity * 0.15;
+        let fresnel = base_fresnel + (1.0 - base_fresnel) * pow(1.0 - max(0.0, dot(-ray, normal)), 2.5 + mat.roughness * 2.0);
+        
+        let reflect_dir = reflect(ray, normal);
+        let ior_water_to_mat = IOR_WATER / mat.ior;
+        let refract_dir_in = refract(ray, normal, ior_water_to_mat);
+        
+        var refract_color = mat.base_color * 0.3;
+        var reflect_color = vec3<f32>(0.0);
+        
+        let is_transparent = mat.absorption.x < 0.5;
+        
+        if (length(refract_dir_in) > 0.001 && is_transparent) {{
+            let local_refract_dir = rotate_vector(refract_dir_in, inv_rotation);
+            let t_exit = get_exit_dist_shape(local_p, local_refract_dir, shape_type, radius);
+            
+            if (t_exit > 0.001) {{
+                let exit_point = hit + refract_dir_in * t_exit;
+                let local_exit = local_p + local_refract_dir * t_exit;
+                
+                let dx2 = get_shape_dist(local_exit + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(e,0.0,0.0), shape_type, radius);
+                let dy2 = get_shape_dist(local_exit + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,e,0.0), shape_type, radius);
+                let dz2 = get_shape_dist(local_exit + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,0.0,e), shape_type, radius);
+                let local_exit_normal = normalize(vec3<f32>(dx2, dy2, dz2));
+                let exit_normal = rotate_vector(local_exit_normal, rotation);
+                
+                let ior_mat_to_water = mat.ior / IOR_WATER;
+                let refract_dir_out = refract(refract_dir_in, -exit_normal, ior_mat_to_water);
+                
                 if (length(refract_dir_out) > 0.001) {{
-                    // Trace ray to background (pool floor/walls)
                     var t_bg = 1e30;
                     if (uniforms.pool_shape == 2) {{
                         let res = intersect_cylinder_walls(exit_point, refract_dir_out, pool_size.x, -pool_height, wall_height);
@@ -111,7 +172,6 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
                     }}
                     
                     let bg_hit = exit_point + refract_dir_out * t_bg;
-                    
                     let coord = bg_hit.xz / (pool_size * 2.0) + 0.5;
                     let water_info = textureSample(water_texture, water_sampler, coord);
                     let caustic = textureSample(caustic_texture, caustic_sampler, coord);
@@ -119,11 +179,11 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
                     var tile_coord: vec2<f32>;
                     if (uniforms.pool_shape == 2) {{
                          let r = length(bg_hit.xz);
-                         if (r > pool_size.x - 0.05) {{ // Wall
+                         if (r > pool_size.x - 0.05) {{
                              let angle = atan2(bg_hit.z, bg_hit.x);
                              let u = angle / (2.0 * 3.14159) + 0.5;
                              tile_coord = vec2<f32>(u * 4.0, bg_hit.y * 0.5 + 0.5);
-                         }} else {{ // Floor
+                         }} else {{
                              tile_coord = bg_hit.xz * 0.5 + 0.5;
                          }}
                     }} else {{
@@ -137,23 +197,18 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
                     }}
                     let tile_color = textureSample(tile_texture, tile_sampler, tile_coord).rgb;
                     refract_color = get_wall_color(bg_hit, uniforms, water_info, caustic, tile_color);
-                    
-                    // Attenuate based on distance and material absorption
                     refract_color *= exp(-mat.absorption * t_exit * 6.0);
                     refract_color *= mat.base_color;
                 }} else {{
-                    // Total internal reflection
                     refract_color = mat.base_color * 0.4;
                 }}
             }}
         }} else if (!is_transparent) {{
-            // For opaque materials (wood), use diffuse lighting
             let diffuse = max(0.0, dot(normal, light));
             let ambient = 0.35;
             refract_color = mat.base_color * (ambient + diffuse * 0.65) * uniforms.light_color.rgb;
         }}
         
-        // Calculate reflection color (trace reflected ray)
         var t_refl = 1e30;
         if (uniforms.pool_shape == 2) {{
             let res = intersect_cylinder_walls(hit, reflect_dir, pool_size.x, -pool_height, wall_height);
@@ -172,11 +227,11 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         var refl_tile_coord: vec2<f32>;
         if (uniforms.pool_shape == 2) {{
              let r = length(refl_hit.xz);
-             if (r > pool_size.x - 0.05) {{ // Wall
+             if (r > pool_size.x - 0.05) {{
                  let angle = atan2(refl_hit.z, refl_hit.x);
                  let u = angle / (2.0 * 3.14159) + 0.5;
                  refl_tile_coord = vec2<f32>(u * 4.0, refl_hit.y * 0.5 + 0.5);
-             }} else {{ // Floor
+             }} else {{
                  refl_tile_coord = refl_hit.xz * 0.5 + 0.5;
              }}
         }} else {{
@@ -191,20 +246,14 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         let refl_tile_color = textureSample(tile_texture, tile_sampler, refl_tile_coord).rgb;
         reflect_color = get_wall_color(refl_hit, uniforms, refl_water_info, refl_caustic, refl_tile_color);
         
-        // Tint reflection for metallic materials
-        if (uniforms.texture_type == 2) {{ // Steel
-            reflect_color *= mat.base_color;
-        }}
+        if (uniforms.texture_type == 2) {{ reflect_color *= mat.base_color; }}
         
-        // Specular highlight with material-dependent intensity
         let spec_power = 30.0 + (1.0 - mat.roughness) * 150.0;
         let spec = pow(max(0.0, dot(reflect_dir, light)), spec_power) * mat.specularity;
         
-        // Mix refraction and reflection based on Fresnel
         color = mix(refract_color, reflect_color, fresnel) + uniforms.light_color.rgb * spec * 0.25;
         
     }} else if ray.y < 0.0 {{
-        // Looking down - hit floor/walls
         let coord = hit.xz / (pool_size * 2.0) + 0.5;
         let water_info = textureSample(water_texture, water_sampler, coord);
         let caustic = textureSample(caustic_texture, caustic_sampler, coord);
@@ -212,11 +261,11 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         var tile_coord: vec2<f32>;
         if (uniforms.pool_shape == 2) {{
              let r = length(hit.xz);
-             if (r > pool_size.x - 0.05) {{ // Wall
+             if (r > pool_size.x - 0.05) {{
                  let angle = atan2(hit.z, hit.x);
                  let u = angle / (2.0 * 3.14159) + 0.5;
                  tile_coord = vec2<f32>(u * 4.0, hit.y * 0.5 + 0.5);
-             }} else {{ // Floor
+             }} else {{
                  tile_coord = hit.xz * 0.5 + 0.5;
              }}
         }} else {{
@@ -231,9 +280,7 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         let tile_color = textureSample(tile_texture, tile_sampler, tile_coord).rgb;
         color = get_wall_color(hit, uniforms, water_info, caustic, tile_color);
     }} else {{
-        // Looking up
         if hit.y < wall_height - 0.001 {{
-            // Hit wall above water
             let coord = hit.xz / (pool_size * 2.0) + 0.5;
             let water_info = textureSample(water_texture, water_sampler, coord);
             let caustic = textureSample(caustic_texture, caustic_sampler, coord);
@@ -241,11 +288,11 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
             var tile_coord: vec2<f32>;
             if (uniforms.pool_shape == 2) {{
                  let r = length(hit.xz);
-                 if (r > pool_size.x - 0.05) {{ // Wall
+                 if (r > pool_size.x - 0.05) {{
                      let angle = atan2(hit.z, hit.x);
                      let u = angle / (2.0 * 3.14159) + 0.5;
                      tile_coord = vec2<f32>(u * 4.0, hit.y * 0.5 + 0.5);
-                 }} else {{ // Floor
+                 }} else {{
                      tile_coord = hit.xz * 0.5 + 0.5;
                  }}
             }} else {{
@@ -258,18 +305,13 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
             let tile_color = textureSample(tile_texture, tile_sampler, tile_coord).rgb;
             color = get_wall_color(hit, uniforms, water_info, caustic, tile_color);
         }} else {{
-            // Hit sky
             let sky_uv = ray.xz * 0.5 + 0.5;
             color = textureSample(sky_texture, sky_sampler, sky_uv).rgb;
-            // Sun highlight
             color += vec3<f32>(pow(max(0.0, dot(light, ray)), 1000.0)) * vec3<f32>(8.0, 6.0, 4.0);
         }}
     }}
     
-    if ray.y < 0.0 {{
-        color *= water_color;
-    }}
-    
+    if ray.y < 0.0 {{ color *= water_color; }}
     return color;
 }}
 
