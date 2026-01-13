@@ -5,7 +5,7 @@ use wgpu::{Device, Queue, TextureFormat};
 use winit::{event::WindowEvent, window::Window};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Shape {
     Sphere,
     Torus,
@@ -13,7 +13,7 @@ pub enum Shape {
     Cube,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Texture {
     Glass,
     Wood,
@@ -21,13 +21,13 @@ pub enum Texture {
     Ice,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Backend {
     Auto,    // Use wgpu::Backends::all() - let wgpu choose
     Vulkan,  // Force Vulkan backend
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PoolShape {
     Cube,       // Equal width/length/depth (current default)
     Cuboid,     // Rectangular (same as cube visually)

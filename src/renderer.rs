@@ -1079,8 +1079,8 @@ impl Renderer {
         for i in 0..segments {
             let curr = i + 1;
             let next = if i + 1 == segments { 1 } else { i + 2 };
-            // CCW when viewed from above: center, next, curr
-            indices.extend_from_slice(&[center_idx, next, curr]);
+            // CCW when viewed from above: center, curr, next
+            indices.extend_from_slice(&[center_idx, curr, next]);
         }
         
         // Cylindrical wall - normals point INWARD (toward center)

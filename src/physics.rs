@@ -1,6 +1,7 @@
 //! Physics module - handles buoyancy and collision physics for floating objects
 
 use glam::Vec3;
+use crate::gui::PoolShape;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ObjectState {
@@ -32,6 +33,7 @@ pub struct PhysicsEngine {
     pub pool_width: f32,
     pub pool_length: f32,
     pub pool_depth: f32,
+    pub pool_shape: PoolShape,
     
     // Physics parameters
     pub float_ratio: f32,
@@ -58,6 +60,7 @@ impl Default for PhysicsEngine {
             pool_width: 2.0,
             pool_length: 2.0,
             pool_depth: 0.0,
+            pool_shape: PoolShape::Cube,
             float_ratio: 0.5, // 50% submerged
             impact_strength: 0.04,
             enabled: true,
@@ -150,24 +153,47 @@ impl PhysicsEngine {
             // Add some global damping to prevent infinite energy
             obj.velocity *= 0.995;
             
-            // Wall collisions (X)
-            let half_width = self.pool_width / 2.0;
-            if obj.center.x < self.radius - half_width {
-                obj.center.x = self.radius - half_width;
-                obj.velocity.x = obj.velocity.x.abs() * 0.5;
-            } else if obj.center.x > half_width - self.radius {
-                obj.center.x = half_width - self.radius;
-                obj.velocity.x = -obj.velocity.x.abs() * 0.5;
-            }
-            
-            // Wall collisions (Z)
-            let half_length = self.pool_length / 2.0;
-            if obj.center.z < self.radius - half_length {
-                obj.center.z = self.radius - half_length;
-                obj.velocity.z = obj.velocity.z.abs() * 0.5;
-            } else if obj.center.z > half_length - self.radius {
-                obj.center.z = half_length - self.radius;
-                obj.velocity.z = -obj.velocity.z.abs() * 0.5;
+            // Wall collisions
+            match self.pool_shape {
+                PoolShape::Cylinder => {
+                    let dist_sq = obj.center.x * obj.center.x + obj.center.z * obj.center.z;
+                    let max_dist = self.pool_width / 2.0 - self.radius;
+                    
+                    if dist_sq > max_dist * max_dist {
+                        let dist = dist_sq.sqrt();
+                        if dist > 0.0001 {
+                            let normal = Vec3::new(obj.center.x, 0.0, obj.center.z) / dist;
+                            obj.center.x = normal.x * max_dist;
+                            obj.center.z = normal.z * max_dist;
+                            
+                            // Reflect velocity
+                            let v_dot_n = obj.velocity.dot(normal);
+                            if v_dot_n > 0.0 {
+                                obj.velocity -= normal * (v_dot_n * 1.5); // Bounce
+                            }
+                        }
+                    }
+                },
+                PoolShape::Frustum => {
+                    // Approximate frustum collision
+                    // Interpolate width based on height
+                    // Top (y=wall_height) scale 1.0, Bottom (y=-pool_depth) scale 0.7
+                    // Assume wall_height=0.4, pool_depth=1.0 (approx)
+                    let h_total = 1.4;
+                    let y_rel = obj.center.y + 1.0; // relative to bottom
+                    let t = (y_rel / h_total).clamp(0.0, 1.0);
+                    let scale = 0.7 + (1.0 - 0.7) * t;
+                    
+                    let half_width = (self.pool_width / 2.0) * scale;
+                    let half_length = (self.pool_length / 2.0) * scale;
+                    
+                    Self::collide_box(obj, half_width, half_length, self.radius);
+                },
+                _ => {
+                    let half_width = self.pool_width / 2.0;
+                    let half_length = self.pool_length / 2.0;
+                    Self::collide_box(obj, half_width, half_length, self.radius);
+                }
             }
             
             // Floor collision
@@ -179,6 +205,24 @@ impl PhysicsEngine {
 
         // 2. Solve Object-Object Collisions
         self.solve_object_collisions();
+    }
+    
+    fn collide_box(obj: &mut ObjectState, half_width: f32, half_length: f32, radius: f32) {
+        if obj.center.x < radius - half_width {
+            obj.center.x = radius - half_width;
+            obj.velocity.x = obj.velocity.x.abs() * 0.5;
+        } else if obj.center.x > half_width - radius {
+            obj.center.x = half_width - radius;
+            obj.velocity.x = -obj.velocity.x.abs() * 0.5;
+        }
+        
+        if obj.center.z < radius - half_length {
+            obj.center.z = radius - half_length;
+            obj.velocity.z = obj.velocity.z.abs() * 0.5;
+        } else if obj.center.z > half_length - radius {
+            obj.center.z = half_length - radius;
+            obj.velocity.z = -obj.velocity.z.abs() * 0.5;
+        }
     }
     
     fn solve_object_collisions(&mut self) {
@@ -234,20 +278,37 @@ impl PhysicsEngine {
         obj.center += delta;
         
         // Clamp to pool bounds
-        let half_width = self.pool_width / 2.0;
-        let half_length = self.pool_length / 2.0;
+        match self.pool_shape {
+            PoolShape::Cylinder => {
+                let max_dist = self.pool_width / 2.0 - self.radius;
+                let dist_sq = obj.center.x * obj.center.x + obj.center.z * obj.center.z;
+                if dist_sq > max_dist * max_dist {
+                    let dist = dist_sq.sqrt();
+                    if dist > 0.0001 {
+                        let normal = Vec3::new(obj.center.x, 0.0, obj.center.z) / dist;
+                        obj.center.x = normal.x * max_dist;
+                        obj.center.z = normal.z * max_dist;
+                    }
+                }
+            },
+            _ => {
+                let half_width = self.pool_width / 2.0;
+                let half_length = self.pool_length / 2.0;
+                
+                obj.center.x = obj.center.x.clamp(
+                    self.radius - half_width,
+                    half_width - self.radius,
+                );
+                obj.center.z = obj.center.z.clamp(
+                    self.radius - half_length,
+                    half_length - self.radius,
+                );
+            }
+        }
         
-        obj.center.x = obj.center.x.clamp(
-            self.radius - half_width,
-            half_width - self.radius,
-        );
         obj.center.y = obj.center.y.clamp(
             self.radius - self.pool_depth,
             10.0,
-        );
-        obj.center.z = obj.center.z.clamp(
-            self.radius - half_length,
-            half_length - self.radius,
         );
     }
     

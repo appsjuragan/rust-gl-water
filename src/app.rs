@@ -407,6 +407,7 @@ impl Application {
                 {
                     let config = &self.run_config;
                     self.physics.gravity = Vec3::new(0.0, -9.81 * config.gravity, 0.0);
+                    self.physics.pool_shape = config.pool_shape;
                     
                     // Reset object position and velocity
                     self.physics.reset_objects(config.object_count);
