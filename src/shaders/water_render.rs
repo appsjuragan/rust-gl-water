@@ -62,62 +62,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {{
     return out;
 }}
 
-fn intersect_cylinder_walls(origin: vec3<f32>, ray: vec3<f32>, radius: f32, y_min: f32, y_max: f32) -> vec2<f32> {{
-    let a = ray.x * ray.x + ray.z * ray.z;
-    let b = 2.0 * (origin.x * ray.x + origin.z * ray.z);
-    let c = origin.x * origin.x + origin.z * origin.z - radius * radius;
-    
-    let discriminant = b * b - 4.0 * a * c;
-    
-    var t_near = -1.0;
-    var t_far = -1.0;
-    
-    if (discriminant >= 0.0) {{
-        let t1 = (-b - sqrt(discriminant)) / (2.0 * a);
-        let t2 = (-b + sqrt(discriminant)) / (2.0 * a);
-        
-        // Check height bounds for t1
-        let y1 = origin.y + ray.y * t1;
-        if (y1 >= y_min && y1 <= y_max) {{
-            t_near = t1;
-        }}
-        
-        // Check height bounds for t2
-        let y2 = origin.y + ray.y * t2;
-        if (y2 >= y_min && y2 <= y_max) {{
-            if (t_near < 0.0) {{ t_near = t2; }}
-            else {{ t_far = t2; }}
-        }}
-    }}
-    
-    // Also check floor and ceiling caps
-    if (abs(ray.y) > 1e-6) {{
-        let t_floor = (y_min - origin.y) / ray.y;
-        let p_floor = origin + ray * t_floor;
-        if (length(p_floor.xz) <= radius) {{
-            if (t_near < 0.0 || (t_floor < t_near && t_floor > 0.0)) {{
-                t_far = t_near;
-                t_near = t_floor;
-            }} else if (t_far < 0.0 || (t_floor < t_far && t_floor > 0.0)) {{
-                t_far = t_floor;
-            }}
-        }}
-        
-        let t_ceil = (y_max - origin.y) / ray.y;
-        let p_ceil = origin + ray * t_ceil;
-        if (length(p_ceil.xz) <= radius) {{
-            if (t_near < 0.0 || (t_ceil < t_near && t_ceil > 0.0)) {{
-                t_far = t_near;
-                t_near = t_ceil;
-            }} else if (t_far < 0.0 || (t_ceil < t_far && t_ceil > 0.0)) {{
-                t_far = t_ceil;
-            }}
-        }}
-    }}
-    
-    return vec2<f32>(t_near, t_far);
-}}
-
 fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f32>) -> vec3<f32> {{
     var color: vec3<f32>;
     let pool_size = uniforms.pool_size;
@@ -138,6 +82,8 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         t_final = t.y;
     }}
     
+
+    
     var is_shape = false;
     
     // Check shape intersection
@@ -151,71 +97,6 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
     }}
     
     let hit = origin + ray * t_final;
-    
-    if (is_shape) {{
-        // Material-dependent refraction through the object
-        let shape_type = uniforms.shape_type;
-        let radius = uniforms.sphere_radius;
-        var center: vec3<f32>;
-        if (shape_idx == 0) {{
-            center = uniforms.sphere_centers[0].xyz;
-        }} else if (shape_idx == 1) {{
-            center = uniforms.sphere_centers[1].xyz;
-        }} else if (shape_idx == 2) {{
-            center = uniforms.sphere_centers[2].xyz;
-        }} else if (shape_idx == 3) {{
-            center = uniforms.sphere_centers[3].xyz;
-        }} else {{
-            center = uniforms.sphere_centers[4].xyz;
-        }}
-        let p = hit - center;
-        
-        // Get material properties
-        let mat = get_material_props(uniforms.texture_type);
-        
-        // Calculate entry normal using SDF gradient
-        let e = 0.001;
-        let dx = get_shape_dist(p + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(p - vec3<f32>(e,0.0,0.0), shape_type, radius);
-        let dy = get_shape_dist(p + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(p - vec3<f32>(0.0,e,0.0), shape_type, radius);
-        let dz = get_shape_dist(p + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(p - vec3<f32>(0.0,0.0,e), shape_type, radius);
-        let normal = normalize(vec3<f32>(dx, dy, dz));
-        
-        // Fresnel effect with material-dependent specularity
-        let base_fresnel = mat.specularity * 0.15;
-        let fresnel = base_fresnel + (1.0 - base_fresnel) * pow(1.0 - max(0.0, dot(-ray, normal)), 2.5 + mat.roughness * 2.0);
-        
-        // Reflection off surface
-        let reflect_dir = reflect(ray, normal);
-        
-        // Refraction into material (water IOR -> material IOR)
-        let ior_water_to_mat = IOR_WATER / mat.ior;
-        let refract_dir_in = refract(ray, normal, ior_water_to_mat);
-        
-        var refract_color = mat.base_color * 0.3; // Default for opaque/TIR
-        var reflect_color = vec3<f32>(0.0);
-        
-        // Check if material is transparent enough for refraction
-        let is_transparent = mat.absorption.x < 0.5;
-        
-        if (length(refract_dir_in) > 0.001 && is_transparent) {{
-            // Find exit point through material
-            let local_origin = hit - center;
-            let t_exit = get_exit_dist_shape(local_origin, refract_dir_in, shape_type, radius);
-            
-            if (t_exit > 0.001) {{
-                let exit_point = hit + refract_dir_in * t_exit;
-                
-                // Calculate exit normal
-                let local_exit = exit_point - center;
-                let dx2 = get_shape_dist(local_exit + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(e,0.0,0.0), shape_type, radius);
-                let dy2 = get_shape_dist(local_exit + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,e,0.0), shape_type, radius);
-                let dz2 = get_shape_dist(local_exit + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,0.0,e), shape_type, radius);
-                let exit_normal = normalize(vec3<f32>(dx2, dy2, dz2));
-                
-                // Refract out of material back into water
-                let ior_mat_to_water = mat.ior / IOR_WATER;
-                let refract_dir_out = refract(refract_dir_in, -exit_normal, ior_mat_to_water);
-                
                 if (length(refract_dir_out) > 0.001) {{
                     // Trace ray to background (pool floor/walls)
                     var t_bg = 1e30;

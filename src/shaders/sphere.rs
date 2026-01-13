@@ -27,6 +27,7 @@ struct VertexOutput {{
     @location(0) world_pos: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) view_pos: vec3<f32>,
+    @location(3) rotation: vec4<f32>,
 }}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
@@ -41,30 +42,31 @@ struct VertexOutput {{
 @group(1) @binding(6) var sky_texture: texture_2d<f32>;
 @group(1) @binding(7) var sky_sampler: sampler;
 
+
+
 @vertex
-fn vs_main(in: VertexInput, @builtin(instance_index) instance_idx: u32) -> VertexOutput {{
+fn vs_main(
+    in: VertexInput,
+    @builtin(instance_index) instance_index: u32,
+) -> VertexOutput {{
     var out: VertexOutput;
     
-    var center: vec3<f32>;
-    if (instance_idx == 0u) {{
-        center = uniforms.sphere_centers[0].xyz;
-    }} else if (instance_idx == 1u) {{
-        center = uniforms.sphere_centers[1].xyz;
-    }} else if (instance_idx == 2u) {{
-        center = uniforms.sphere_centers[2].xyz;
-    }} else if (instance_idx == 3u) {{
-        center = uniforms.sphere_centers[3].xyz;
-    }} else {{
-        center = uniforms.sphere_centers[4].xyz;
-    }}
+    let center = uniforms.sphere_centers[instance_index].xyz;
+    let rotation = uniforms.sphere_rotations[instance_index];
+    let radius = uniforms.sphere_radius;
     
-    // Transform unit sphere to world position
-    let world_pos = in.position * uniforms.sphere_radius + center;
+    // Apply rotation to position and normal
+    let rotated_pos = rotate_vector(in.position, rotation);
+    let rotated_normal = rotate_vector(in.normal, rotation);
+    
+    // Scale and translate
+    let world_pos = rotated_pos * radius + center;
+    
     out.world_pos = world_pos;
-    out.world_normal = in.normal;
-    
-    out.position = camera.view_proj * vec4<f32>(world_pos, 1.0);
+    out.world_normal = rotated_normal;
     out.view_pos = camera.eye.xyz;
+    out.position = camera.view_proj * vec4<f32>(world_pos, 1.0);
+    out.rotation = rotation;
     
     return out;
 }}
@@ -76,10 +78,19 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
     let wall_height = uniforms.wall_height;
     let light = uniforms.light_dir.xyz;
     
-    let cube_min = vec3<f32>(-pool_size.x, -pool_height, -pool_size.y);
-    let cube_max = vec3<f32>(pool_size.x, wall_height, pool_size.y);
-    let t = intersect_cube(origin, ray, cube_min, cube_max);
-    let hit = origin + ray * t.y;
+    var t_dist = 1e30;
+    
+    if (uniforms.pool_shape == 2) {{ // Cylinder
+        let res = intersect_cylinder_walls(origin, ray, pool_size.x, -pool_height, wall_height);
+        if (res.y > 0.0) {{ t_dist = res.y; }}
+    }} else {{
+        let cube_min = vec3<f32>(-pool_size.x, -pool_height, -pool_size.y);
+        let cube_max = vec3<f32>(pool_size.x, wall_height, pool_size.y);
+        let t = intersect_cube(origin, ray, cube_min, cube_max);
+        t_dist = t.y;
+    }}
+    
+    let hit = origin + ray * t_dist;
     
     if ray.y < 0.0 {{
         // Looking down - hit floor/walls
@@ -88,12 +99,23 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
         let caustic = textureSample(caustic_texture, caustic_sampler, coord);
         
         var tile_coord: vec2<f32>;
-        if abs(hit.x) > pool_size.x - 0.01 {{
-            tile_coord = hit.yz * 0.5 + vec2<f32>(1.0, 0.5);
-        }} else if abs(hit.z) > pool_size.y - 0.01 {{
-            tile_coord = hit.yx * 0.5 + vec2<f32>(1.0, 0.5);
+        if (uniforms.pool_shape == 2) {{
+             let r = length(hit.xz);
+             if (r > pool_size.x - 0.05) {{ // Wall
+                 let angle = atan2(hit.z, hit.x);
+                 let u = angle / (2.0 * 3.14159) + 0.5;
+                 tile_coord = vec2<f32>(u * 4.0, hit.y * 0.5 + 0.5);
+             }} else {{ // Floor
+                 tile_coord = hit.xz * 0.5 + 0.5;
+             }}
         }} else {{
-            tile_coord = hit.xz * 0.5 + 0.5;
+            if abs(hit.x) > pool_size.x - 0.01 {{
+                tile_coord = hit.yz * 0.5 + vec2<f32>(1.0, 0.5);
+            }} else if abs(hit.z) > pool_size.y - 0.01 {{
+                tile_coord = hit.yx * 0.5 + vec2<f32>(1.0, 0.5);
+            }} else {{
+                tile_coord = hit.xz * 0.5 + 0.5;
+            }}
         }}
         let tile_color = textureSample(tile_texture, tile_sampler, tile_coord).rgb;
         color = get_wall_color(hit, uniforms, water_info, caustic, tile_color);
@@ -106,10 +128,16 @@ fn get_surface_ray_color(origin: vec3<f32>, ray: vec3<f32>, water_color: vec3<f3
             let caustic = textureSample(caustic_texture, caustic_sampler, coord);
             
             var tile_coord: vec2<f32>;
-            if abs(hit.x) > pool_size.x - 0.01 {{
-                tile_coord = hit.yz * 0.5 + vec2<f32>(1.0, 0.5);
+            if (uniforms.pool_shape == 2) {{
+                 let angle = atan2(hit.z, hit.x);
+                 let u = angle / (2.0 * 3.14159) + 0.5;
+                 tile_coord = vec2<f32>(u * 4.0, hit.y * 0.5 + 0.5);
             }} else {{
-                tile_coord = hit.yx * 0.5 + vec2<f32>(1.0, 0.5);
+                if abs(hit.x) > pool_size.x - 0.01 {{
+                    tile_coord = hit.yz * 0.5 + vec2<f32>(1.0, 0.5);
+                }} else {{
+                    tile_coord = hit.yx * 0.5 + vec2<f32>(1.0, 0.5);
+                }}
             }}
             let tile_color = textureSample(tile_texture, tile_sampler, tile_coord).rgb;
             color = get_wall_color(hit, uniforms, water_info, caustic, tile_color);
@@ -176,18 +204,23 @@ fn fs_main(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @location
             }}
         }}
         
-        let local_origin = in.world_pos - center;
-        let t_exit = get_exit_dist_shape(local_origin, refract_dir_in, shape_type, radius);
+        let rotation = in.rotation;
+        let inv_rotation = vec4<f32>(-rotation.xyz, rotation.w);
+        let local_origin = rotate_vector(in.world_pos - center, inv_rotation);
+        let local_refract_dir = rotate_vector(refract_dir_in, inv_rotation);
+        
+        let t_exit = get_exit_dist_shape(local_origin, local_refract_dir, shape_type, radius);
         
         if (t_exit > 0.001) {{
             let exit_point = in.world_pos + refract_dir_in * t_exit;
             
             let e = 0.001;
-            let local_exit = exit_point - center;
+            let local_exit = local_origin + local_refract_dir * t_exit;
             let dx = get_shape_dist(local_exit + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(e,0.0,0.0), shape_type, radius);
             let dy = get_shape_dist(local_exit + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,e,0.0), shape_type, radius);
             let dz = get_shape_dist(local_exit + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_exit - vec3<f32>(0.0,0.0,e), shape_type, radius);
-            let exit_normal = normalize(vec3<f32>(dx, dy, dz)); 
+            let local_normal = normalize(vec3<f32>(dx, dy, dz)); 
+            let exit_normal = rotate_vector(local_normal, rotation); 
             
             let water_level = textureSample(water_texture, water_sampler, exit_point.xz / (uniforms.pool_size * 2.0) + 0.5).r;
             

@@ -1,6 +1,6 @@
 //! Physics module - handles buoyancy and collision physics for floating objects
 
-use glam::Vec3;
+use glam::{Vec3, Quat};
 use crate::gui::PoolShape;
 
 #[derive(Clone, Copy, Debug)]
@@ -8,6 +8,8 @@ pub struct ObjectState {
     pub center: Vec3,
     pub old_center: Vec3,
     pub velocity: Vec3,
+    pub rotation: Quat,
+    pub angular_velocity: Vec3,
 }
 
 impl Default for ObjectState {
@@ -16,6 +18,8 @@ impl Default for ObjectState {
             center: Vec3::ZERO,
             old_center: Vec3::ZERO,
             velocity: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
+            angular_velocity: Vec3::ZERO,
         }
     }
 }
@@ -41,6 +45,9 @@ pub struct PhysicsEngine {
     pub enabled: bool,
     pub gravity_enabled: bool,
     pub mouse_repulsion_enabled: bool,
+    
+    // Random seed
+    pub seed: u32,
 }
 
 impl Default for PhysicsEngine {
@@ -51,6 +58,8 @@ impl Default for PhysicsEngine {
             center: Vec3::new(0.0, 2.0, 0.0),
             old_center: Vec3::new(0.0, 2.0, 0.0),
             velocity: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
+            angular_velocity: Vec3::ZERO,
         });
 
         Self {
@@ -66,11 +75,17 @@ impl Default for PhysicsEngine {
             enabled: true,
             gravity_enabled: true,
             mouse_repulsion_enabled: true,
+            seed: 12345,
         }
     }
 }
 
 impl PhysicsEngine {
+    fn random_f32_static(seed: &mut u32) -> f32 {
+        *seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        (*seed as f32) / (u32::MAX as f32)
+    }
+
     /// Update physics simulation for all objects
     pub fn update(
         &mut self,
@@ -84,6 +99,19 @@ impl PhysicsEngine {
             return;
         }
         
+        // Extract fields to avoid borrowing self in loop
+        let gravity = self.gravity;
+        let radius = self.radius;
+        let pool_width = self.pool_width;
+        let pool_length = self.pool_length;
+        let pool_depth = self.pool_depth;
+        let pool_shape = self.pool_shape;
+        let float_ratio = self.float_ratio;
+        let enabled = self.enabled;
+        let gravity_enabled = self.gravity_enabled;
+        let mouse_repulsion_enabled = self.mouse_repulsion_enabled;
+        let seed = &mut self.seed;
+        
         // 1. Update individual objects
         for (i, obj) in self.objects.iter_mut().enumerate() {
             // Store old position
@@ -92,8 +120,9 @@ impl PhysicsEngine {
             // If this object is being dragged, skip physics integration
             if Some(i) == dragged_object_index {
                 obj.velocity = Vec3::ZERO;
+                obj.angular_velocity = Vec3::ZERO;
                 continue;
-            } else if !self.enabled {
+            } else if !enabled {
                 continue;
             }
 
@@ -101,27 +130,34 @@ impl PhysicsEngine {
             let mut force = Vec3::ZERO;
 
             // Gravity
-            if self.gravity_enabled {
-                force += self.gravity;
+            if gravity_enabled {
+                force += gravity;
             }
 
             // Buoyancy
             // percent_underwater = 0 at y = center + radius, 1 at y = center - radius
-            let submerged_depth = (water_height + self.radius - obj.center.y).max(0.0);
-            let percent_underwater = (submerged_depth / (2.0 * self.radius)).min(1.0);
+            let submerged_depth = (water_height + radius - obj.center.y).max(0.0);
+            let percent_underwater = (submerged_depth / (2.0 * radius)).min(1.0);
             
             // Equilibrium at float_ratio: Gravity + Buoyancy = 0
             // Buoyancy = -gravity * (percent / float_ratio)
             if percent_underwater > 0.0 {
-                let buoyancy_force = -self.gravity * (percent_underwater / self.float_ratio);
+                let buoyancy_force = -gravity * (percent_underwater / float_ratio);
                 force += buoyancy_force;
                 
                 // Add vertical damping (viscosity)
                 force -= obj.velocity * (percent_underwater * 2.0);
+                
+                // Random torque from waves
+                let rx = (Self::random_f32_static(seed) - 0.5) * 2.0;
+                let ry = (Self::random_f32_static(seed) - 0.5) * 2.0;
+                let rz = (Self::random_f32_static(seed) - 0.5) * 2.0;
+                let random_torque = Vec3::new(rx, ry, rz).normalize_or_zero() * 2.0 * percent_underwater;
+                obj.angular_velocity += random_torque * dt;
             }
 
             // Mouse repulsion (horizontal) - can be toggled with 'L' key
-            if self.mouse_repulsion_enabled {
+            if mouse_repulsion_enabled {
                 if let Some(mouse) = mouse_point {
                     let mut dist_vec = obj.center - mouse;
                     dist_vec.y = 0.0;
@@ -144,6 +180,13 @@ impl PhysicsEngine {
                 let drag_coeff = 0.5 + percent_underwater * 2.0;
                 let drag_force = -obj.velocity.normalize() * (speed * speed * drag_coeff);
                 force += drag_force;
+                
+                // Induce rolling from movement (drag acts on surface, not center)
+                // Torque = r x F
+                // Assume drag acts on bottom if floating, or opposite to velocity
+                // Simplified: Roll axis is cross product of Up and Velocity
+                let roll_axis = Vec3::Y.cross(obj.velocity).normalize_or_zero();
+                obj.angular_velocity += roll_axis * speed * 2.0 * dt;
             }
             
             // 2. Integrate (Semi-Implicit Euler)
@@ -153,11 +196,22 @@ impl PhysicsEngine {
             // Add some global damping to prevent infinite energy
             obj.velocity *= 0.995;
             
+            // Angular damping
+            obj.angular_velocity *= 0.98;
+            
+            // Integrate rotation
+            let angle = obj.angular_velocity.length();
+            if angle > 0.0001 {
+                let axis = obj.angular_velocity / angle;
+                let rot_delta = Quat::from_axis_angle(axis, angle * dt);
+                obj.rotation = (rot_delta * obj.rotation).normalize();
+            }
+            
             // Wall collisions
-            match self.pool_shape {
+            match pool_shape {
                 PoolShape::Cylinder => {
                     let dist_sq = obj.center.x * obj.center.x + obj.center.z * obj.center.z;
-                    let max_dist = self.pool_width / 2.0 - self.radius;
+                    let max_dist = pool_width / 2.0 - radius;
                     
                     if dist_sq > max_dist * max_dist {
                         let dist = dist_sq.sqrt();
@@ -170,36 +224,45 @@ impl PhysicsEngine {
                             let v_dot_n = obj.velocity.dot(normal);
                             if v_dot_n > 0.0 {
                                 obj.velocity -= normal * (v_dot_n * 1.5); // Bounce
+                                
+                                // Add friction torque
+                                let tangent = (obj.velocity - normal * v_dot_n).normalize_or_zero();
+                                let torque_axis = normal.cross(tangent);
+                                obj.angular_velocity += torque_axis * v_dot_n * 5.0;
                             }
                         }
                     }
                 },
                 PoolShape::Frustum => {
                     // Approximate frustum collision
-                    // Interpolate width based on height
-                    // Top (y=wall_height) scale 1.0, Bottom (y=-pool_depth) scale 0.7
-                    // Assume wall_height=0.4, pool_depth=1.0 (approx)
                     let h_total = 1.4;
                     let y_rel = obj.center.y + 1.0; // relative to bottom
                     let t = (y_rel / h_total).clamp(0.0, 1.0);
                     let scale = 0.7 + (1.0 - 0.7) * t;
                     
-                    let half_width = (self.pool_width / 2.0) * scale;
-                    let half_length = (self.pool_length / 2.0) * scale;
+                    let half_width = (pool_width / 2.0) * scale;
+                    let half_length = (pool_length / 2.0) * scale;
                     
-                    Self::collide_box(obj, half_width, half_length, self.radius);
+                    Self::collide_box(obj, half_width, half_length, radius);
                 },
                 _ => {
-                    let half_width = self.pool_width / 2.0;
-                    let half_length = self.pool_length / 2.0;
-                    Self::collide_box(obj, half_width, half_length, self.radius);
+                    let half_width = pool_width / 2.0;
+                    let half_length = pool_length / 2.0;
+                    Self::collide_box(obj, half_width, half_length, radius);
                 }
             }
             
             // Floor collision
-            if obj.center.y < self.radius - self.pool_depth {
-                obj.center.y = self.radius - self.pool_depth;
+            if obj.center.y < radius - pool_depth {
+                obj.center.y = radius - pool_depth;
                 obj.velocity.y = obj.velocity.y.abs() * 0.7;
+                
+                // Floor friction
+                let v_horiz = Vec3::new(obj.velocity.x, 0.0, obj.velocity.z);
+                if v_horiz.length() > 0.01 {
+                    let roll_axis = Vec3::Y.cross(v_horiz).normalize();
+                    obj.angular_velocity += roll_axis * v_horiz.length() * 5.0 * dt;
+                }
             }
         }
 
@@ -211,17 +274,22 @@ impl PhysicsEngine {
         if obj.center.x < radius - half_width {
             obj.center.x = radius - half_width;
             obj.velocity.x = obj.velocity.x.abs() * 0.5;
+            // Friction/Torque
+            obj.angular_velocity.z -= obj.velocity.y * 2.0;
         } else if obj.center.x > half_width - radius {
             obj.center.x = half_width - radius;
             obj.velocity.x = -obj.velocity.x.abs() * 0.5;
+            obj.angular_velocity.z += obj.velocity.y * 2.0;
         }
         
         if obj.center.z < radius - half_length {
             obj.center.z = radius - half_length;
             obj.velocity.z = obj.velocity.z.abs() * 0.5;
+            obj.angular_velocity.x += obj.velocity.y * 2.0;
         } else if obj.center.z > half_length - radius {
             obj.center.z = half_length - radius;
             obj.velocity.z = -obj.velocity.z.abs() * 0.5;
+            obj.angular_velocity.x -= obj.velocity.y * 2.0;
         }
     }
     
@@ -264,6 +332,13 @@ impl PhysicsEngine {
                         let impulse = normal * speed * 1.5; // 1.5 for bounce
                         self.objects[i].velocity -= impulse * 0.5;
                         self.objects[j].velocity += impulse * 0.5;
+                        
+                        // Transfer angular momentum (friction)
+                        let tangent = (relative_vel - normal * speed).normalize_or_zero();
+                        let torque_axis = normal.cross(tangent);
+                        let torque = torque_axis * speed.abs() * 2.0;
+                        self.objects[i].angular_velocity += torque;
+                        self.objects[j].angular_velocity -= torque;
                     }
                 }
             }
@@ -323,6 +398,8 @@ impl PhysicsEngine {
                 center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.5, offset_z), // Drop from height
                 old_center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.5, offset_z),
                 velocity: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+                angular_velocity: Vec3::ZERO,
             });
         }
     }

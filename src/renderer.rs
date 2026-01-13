@@ -21,6 +21,7 @@ pub struct CommonUniforms {
     pub pool_size: [f32; 2],
     pub light_dir: [f32; 4],
     pub sphere_centers: [[f32; 4]; 5],
+    pub sphere_rotations: [[f32; 4]; 5],
     pub sphere_radius: f32,
     pub time: f32,
     pub shape_type: i32,
@@ -39,6 +40,7 @@ impl Default for CommonUniforms {
             pool_size: [1.0, 1.0],
             light_dir: [-0.577, 0.577, 0.577, 0.0],
             sphere_centers: [[0.0; 4]; 5],
+            sphere_rotations: [[0.0, 0.0, 0.0, 1.0]; 5],
             sphere_radius: 0.25,
             time: 0.0,
             shape_type: 0,
@@ -1172,11 +1174,13 @@ impl Renderer {
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
 
-        // Populate centers array
+        // Populate centers and rotations
         let mut centers = [[0.0f32; 4]; 5];
+        let mut rotations = [[0.0f32; 4]; 5];
         let count = objects.len().min(5);
         for i in 0..count {
             centers[i] = [objects[i].center.x, objects[i].center.y, objects[i].center.z, 0.0];
+            rotations[i] = [objects[i].rotation.x, objects[i].rotation.y, objects[i].rotation.z, objects[i].rotation.w];
         }
 
         self.common_uniform.pool_height = self.pool_height;
@@ -1184,6 +1188,7 @@ impl Renderer {
         self.common_uniform.pool_size = [self.pool_width / 2.0, self.pool_length / 2.0];
         self.common_uniform.light_dir = [self.light_dir.x, self.light_dir.y, self.light_dir.z, 0.0];
         self.common_uniform.sphere_centers = centers;
+        self.common_uniform.sphere_rotations = rotations;
         self.common_uniform.sphere_radius = sphere_radius;
         self.common_uniform.time = time;
         self.common_uniform.shape_type = shape_type;

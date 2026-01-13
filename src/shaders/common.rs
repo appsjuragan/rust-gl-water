@@ -16,6 +16,7 @@ struct CommonUniforms {
     pool_size: vec2<f32>,
     light_dir: vec4<f32>,
     sphere_centers: array<vec4<f32>, 5>,
+    sphere_rotations: array<vec4<f32>, 5>,
     sphere_radius: f32,
     time: f32,
     shape_type: i32,
@@ -30,6 +31,11 @@ struct CommonUniforms {
 
 pub const HELPER_FUNCTIONS: &str = r#"
 // SDF functions
+fn rotate_vector(v: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    let t = 2.0 * cross(q.xyz, v);
+    return v + q.w * t + cross(q.xyz, t);
+}
+
 fn sdSphere(p: vec3<f32>, r: f32) -> f32 {
     return length(p) - r;
 }
@@ -79,7 +85,63 @@ fn intersect_cube(origin: vec3<f32>, ray: vec3<f32>, cube_min: vec3<f32>, cube_m
     return vec2<f32>(t_near, t_far);
 }
 
-fn intersect_single_shape(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, radius: f32, shape_type: i32) -> f32 {
+fn intersect_cylinder_walls(origin: vec3<f32>, ray: vec3<f32>, radius: f32, y_min: f32, y_max: f32) -> vec2<f32> {
+    let a = ray.x * ray.x + ray.z * ray.z;
+    let b = 2.0 * (origin.x * ray.x + origin.z * ray.z);
+    let c = origin.x * origin.x + origin.z * origin.z - radius * radius;
+    
+    let discriminant = b * b - 4.0 * a * c;
+    
+    var t_near = -1.0;
+    var t_far = -1.0;
+    
+    if (discriminant >= 0.0) {
+        let t1 = (-b - sqrt(discriminant)) / (2.0 * a);
+        let t2 = (-b + sqrt(discriminant)) / (2.0 * a);
+        
+        // Check height bounds for t1
+        let y1 = origin.y + ray.y * t1;
+        if (y1 >= y_min && y1 <= y_max) {
+            t_near = t1;
+        }
+        
+        // Check height bounds for t2
+        let y2 = origin.y + ray.y * t2;
+        if (y2 >= y_min && y2 <= y_max) {
+            if (t_near < 0.0) { t_near = t2; }
+            else { t_far = t2; }
+        }
+    }
+    
+    // Also check floor and ceiling caps
+    if (abs(ray.y) > 1e-6) {
+        let t_floor = (y_min - origin.y) / ray.y;
+        let p_floor = origin + ray * t_floor;
+        if (length(p_floor.xz) <= radius) {
+            if (t_near < 0.0 || (t_floor < t_near && t_floor > 0.0)) {
+                t_far = t_near;
+                t_near = t_floor;
+            } else if (t_far < 0.0 || t_floor < t_far) {
+                t_far = t_floor;
+            }
+        }
+        
+        let t_ceil = (y_max - origin.y) / ray.y;
+        let p_ceil = origin + ray * t_ceil;
+        if (length(p_ceil.xz) <= radius) {
+            if (t_near < 0.0 || (t_ceil < t_near && t_ceil > 0.0)) {
+                t_far = t_near;
+                t_near = t_ceil;
+            } else if (t_far < 0.0 || t_ceil < t_far) {
+                t_far = t_ceil;
+            }
+        }
+    }
+    
+    return vec2<f32>(t_near, t_far);
+}
+
+fn intersect_single_shape(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, radius: f32, shape_type: i32, rotation: vec4<f32>) -> f32 {
     // Check bounding sphere first
     let bound_r = radius * 1.5;
     var t = 0.0;
@@ -96,9 +158,12 @@ fn intersect_single_shape(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, 
         return intersect_sphere(origin, ray, center, radius); 
     }
     
-    let local_origin = origin - center;
+    let inv_rotation = vec4<f32>(-rotation.xyz, rotation.w);
+    let local_origin = rotate_vector(origin - center, inv_rotation);
+    let local_ray = rotate_vector(ray, inv_rotation);
+    
     for (var i=0; i<32; i++) {
-        let p = local_origin + ray * t;
+        let p = local_origin + local_ray * t;
         let d = get_shape_dist(p, shape_type, radius);
         if (d < 0.001) { return t; }
         t += d;
@@ -112,23 +177,23 @@ fn intersect_shape_any(origin: vec3<f32>, ray: vec3<f32>, uniforms: CommonUnifor
     var best_idx = -1.0;
     
     if (uniforms.object_count > 0) {
-        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[0].xyz, uniforms.sphere_radius, uniforms.shape_type);
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[0].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[0]);
         if (t > 0.0 && t < best_t) { best_t = t; best_idx = 0.0; }
     }
     if (uniforms.object_count > 1) {
-        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[1].xyz, uniforms.sphere_radius, uniforms.shape_type);
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[1].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[1]);
         if (t > 0.0 && t < best_t) { best_t = t; best_idx = 1.0; }
     }
     if (uniforms.object_count > 2) {
-        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[2].xyz, uniforms.sphere_radius, uniforms.shape_type);
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[2].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[2]);
         if (t > 0.0 && t < best_t) { best_t = t; best_idx = 2.0; }
     }
     if (uniforms.object_count > 3) {
-        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[3].xyz, uniforms.sphere_radius, uniforms.shape_type);
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[3].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[3]);
         if (t > 0.0 && t < best_t) { best_t = t; best_idx = 3.0; }
     }
     if (uniforms.object_count > 4) {
-        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[4].xyz, uniforms.sphere_radius, uniforms.shape_type);
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[4].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[4]);
         if (t > 0.0 && t < best_t) { best_t = t; best_idx = 4.0; }
     }
     
@@ -251,21 +316,28 @@ fn get_wall_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f
 // Get sphere color (for object surface)
 fn get_sphere_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f32>, caustic_sample: vec4<f32>, shape_idx: i32) -> vec3<f32> {
     var center: vec3<f32>;
+    var rotation: vec4<f32>;
     if (shape_idx == 0) {
         center = uniforms.sphere_centers[0].xyz;
+        rotation = uniforms.sphere_rotations[0];
     } else if (shape_idx == 1) {
         center = uniforms.sphere_centers[1].xyz;
+        rotation = uniforms.sphere_rotations[1];
     } else if (shape_idx == 2) {
         center = uniforms.sphere_centers[2].xyz;
+        rotation = uniforms.sphere_rotations[2];
     } else if (shape_idx == 3) {
         center = uniforms.sphere_centers[3].xyz;
+        rotation = uniforms.sphere_rotations[3];
     } else {
         center = uniforms.sphere_centers[4].xyz;
+        rotation = uniforms.sphere_rotations[4];
     }
     
     let radius = uniforms.sphere_radius;
     let light = uniforms.light_dir.xyz;
-    let local_p = point - center;
+    let inv_rotation = vec4<f32>(-rotation.xyz, rotation.w);
+    let local_p = rotate_vector(point - center, inv_rotation);
     let shape_type = uniforms.shape_type;
     
     // normal calculation 
@@ -273,7 +345,8 @@ fn get_sphere_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4
     let dx = get_shape_dist(local_p + vec3<f32>(e,0.0,0.0), shape_type, radius) - get_shape_dist(local_p - vec3<f32>(e,0.0,0.0), shape_type, radius);
     let dy = get_shape_dist(local_p + vec3<f32>(0.0,e,0.0), shape_type, radius) - get_shape_dist(local_p - vec3<f32>(0.0,e,0.0), shape_type, radius);
     let dz = get_shape_dist(local_p + vec3<f32>(0.0,0.0,e), shape_type, radius) - get_shape_dist(local_p - vec3<f32>(0.0,0.0,e), shape_type, radius);
-    let normal = normalize(vec3<f32>(dx, dy, dz));
+    let local_normal = normalize(vec3<f32>(dx, dy, dz));
+    let normal = rotate_vector(local_normal, rotation);
     
     let refracted_light = refract(-light, vec3<f32>(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);
     var diffuse = max(0.0, dot(-refracted_light, normal)) * 0.5;
