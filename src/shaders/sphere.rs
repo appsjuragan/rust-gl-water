@@ -28,6 +28,7 @@ struct VertexOutput {{
     @location(1) world_normal: vec3<f32>,
     @location(2) view_pos: vec3<f32>,
     @location(3) rotation: vec4<f32>,
+    @location(4) @interpolate(flat) instance_index: u32,
 }}
 
 @group(0) @binding(0) var<uniform> camera: CameraUniforms;
@@ -67,6 +68,7 @@ fn vs_main(
     out.view_pos = camera.eye.xyz;
     out.position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.rotation = rotation;
+    out.instance_index = instance_index;
     
     return out;
 }}
@@ -192,17 +194,8 @@ fn fs_main(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @location
     let is_transparent = mat.absorption.x < 0.5;
     
     if (length(refract_dir_in) > 0.001 && is_transparent) {{
-        // Need to find which sphere we are in for local coordinates
-        var center: vec3<f32>;
-        var best_dist = 1e30;
-        for (var i = 0; i < uniforms.object_count; i++) {{
-            let c = uniforms.sphere_centers[i].xyz;
-            let d = length(in.world_pos - c);
-            if (d < best_dist) {{
-                best_dist = d;
-                center = c;
-            }}
-        }}
+        // Use instance_index to get the correct center
+        let center = uniforms.sphere_centers[in.instance_index].xyz;
         
         let rotation = in.rotation;
         let inv_rotation = vec4<f32>(-rotation.xyz, rotation.w);

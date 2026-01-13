@@ -143,14 +143,14 @@ fn intersect_cylinder_walls(origin: vec3<f32>, ray: vec3<f32>, radius: f32, y_mi
 
 fn intersect_single_shape(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, radius: f32, shape_type: i32, rotation: vec4<f32>) -> f32 {
     // Check bounding sphere first
-    let bound_r = radius * 1.5;
+    let bound_r = radius * 2.0;
     var t = 0.0;
     
     let dist_to_center = length(origin - center);
     if (dist_to_center > bound_r) {
         let t_sphere = intersect_sphere(origin, ray, center, bound_r);
         if (t_sphere < 0.0) { return -1.0; }
-        t = max(0.0, t_sphere - 0.1);
+        t = max(0.0, t_sphere - 0.01);
     }
     
     if (shape_type == 0) { 
@@ -162,12 +162,17 @@ fn intersect_single_shape(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, 
     let local_origin = rotate_vector(origin - center, inv_rotation);
     let local_ray = rotate_vector(ray, inv_rotation);
     
-    for (var i=0; i<32; i++) {
+    // Check if starting inside
+    if (get_shape_dist(local_origin, shape_type, radius) < 0.0) {
+        return 0.0;
+    }
+    
+    for (var i=0; i<64; i++) {
         let p = local_origin + local_ray * t;
         let d = get_shape_dist(p, shape_type, radius);
-        if (d < 0.001) { return t; }
+        if (d < 0.0005) { return t; }
         t += d;
-        if (t > radius * 3.0) { return -1.0; }
+        if (t > radius * 4.0) { return -1.0; }
     }
     return -1.0;
 }
@@ -202,12 +207,13 @@ fn intersect_shape_any(origin: vec3<f32>, ray: vec3<f32>, uniforms: CommonUnifor
 }
 
 fn get_exit_dist_shape(origin: vec3<f32>, ray: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
-    var t = 0.01;
-    for (var i = 0; i < 32; i++) {
+    var t = 0.001;
+    for (var i = 0; i < 64; i++) {
         let p = origin + ray * t;
         let d = get_shape_dist(p, shape_type, radius);
-        if (d > -0.001) { return t; }
+        if (d > -0.0005) { return t; }
         t += abs(d);
+        if (t > radius * 4.0) { break; }
     }
     return t;
 }
