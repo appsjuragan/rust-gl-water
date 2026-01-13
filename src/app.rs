@@ -19,7 +19,7 @@ use crate::renderer::Renderer;
 use crate::water::Water;
 
 use crate::ui::UiRenderer;
-use crate::gui::{Gui, AppConfig as RunConfig, Shape, Texture};
+use crate::gui::{Gui, AppConfig as RunConfig, Shape, Texture, Backend, PoolShape};
 
 #[derive(PartialEq)]
 enum AppState {
@@ -366,6 +366,28 @@ impl Application {
                              ui.add(egui::Slider::new(&mut config.light_color[2], 1..=255));
                          });
                          
+                         ui.add_space(10.0);
+                         ui.separator();
+                         
+                         // Backend and Pool Shape side by side
+                         ui.horizontal(|ui| {
+                             ui.vertical(|ui| {
+                                 ui.label("Graphics Backend:");
+                                 ui.radio_value(&mut config.backend, Backend::Auto, "Auto");
+                                 ui.radio_value(&mut config.backend, Backend::Vulkan, "Vulkan");
+                             });
+                             
+                             ui.add_space(40.0);
+                             
+                             ui.vertical(|ui| {
+                                 ui.label("Pool Shape:");
+                                 ui.radio_value(&mut config.pool_shape, PoolShape::Cube, "Cube");
+                                 ui.radio_value(&mut config.pool_shape, PoolShape::Cuboid, "Cuboid");
+                                 ui.radio_value(&mut config.pool_shape, PoolShape::Frustum, "Frustum");
+                                 ui.radio_value(&mut config.pool_shape, PoolShape::Cylinder, "Cylinder");
+                             });
+                         });
+                         
                          ui.add_space(20.0);
                          ui.horizontal(|ui| {
                              if ui.button("RESET").clicked() {
@@ -396,6 +418,15 @@ impl Application {
                         Shape::Cube => "Cube",
                     };
                     gfx.renderer.update_object_mesh(&gfx.device, shape_name);
+                    
+                    // Update pool shape mesh
+                    let pool_shape_name = match config.pool_shape {
+                        PoolShape::Cube => "Cube",
+                        PoolShape::Cuboid => "Cuboid",
+                        PoolShape::Frustum => "Frustum",
+                        PoolShape::Cylinder => "Cylinder",
+                    };
+                    gfx.renderer.update_pool_mesh(&gfx.device, pool_shape_name);
                     
                     let c = config.light_color;
                      gfx.renderer.common_uniform.light_color = [
@@ -448,6 +479,13 @@ impl Application {
         };
 
         let lc = self.run_config.light_color;
+        
+        let pool_shape_idx = match self.run_config.pool_shape {
+            PoolShape::Cube | PoolShape::Cuboid => 0,
+            PoolShape::Frustum => 1,
+            PoolShape::Cylinder => 2,
+        };
+
         gfx.renderer.update_uniforms(
             &gfx.queue,
             &self.camera,
@@ -457,6 +495,7 @@ impl Application {
             shape_type,
             texture_type,
             [lc[0] as f32 / 255.0, lc[1] as f32 / 255.0, lc[2] as f32 / 255.0],
+            pool_shape_idx,
         );
 
         // Update FPS UI
@@ -661,6 +700,7 @@ impl ApplicationHandler for Application {
                             self.physics.radius,
                             self.physics.pool_width,
                             self.physics.pool_length,
+                            &self.run_config.pool_shape,
                         );
                         self.dragged_object_index = hit_idx;
                     }

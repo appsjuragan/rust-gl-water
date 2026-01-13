@@ -21,9 +21,9 @@ struct CommonUniforms {
     shape_type: i32,
     texture_type: i32,
     object_count: i32,
+    pool_shape: i32,
     _pad0: f32,
     _pad1: f32,
-    _pad2: f32,
     light_color: vec4<f32>,
 }
 "#;
@@ -192,12 +192,40 @@ fn get_wall_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f
     let light = uniforms.light_dir.xyz;
     
     var normal: vec3<f32>;
-    if abs(point.x) > pool_size.x - 0.01 {
-        normal = vec3<f32>(-sign(point.x), 0.0, 0.0);
-    } else if abs(point.z) > pool_size.y - 0.01 {
-        normal = vec3<f32>(0.0, 0.0, -sign(point.z));
-    } else {
-        normal = vec3<f32>(0.0, 1.0, 0.0);
+    
+    if (uniforms.pool_shape == 2) { // Cylinder
+        let r = length(point.xz);
+        if (r > pool_size.x - 0.05) { // Wall
+            normal = normalize(vec3<f32>(-point.x, 0.0, -point.z));
+        } else { // Floor
+            normal = vec3<f32>(0.0, 1.0, 0.0);
+        }
+    } else if (uniforms.pool_shape == 1) { // Frustum
+        // Check if on floor or wall
+        // Floor is at -pool_height
+        if (point.y < -uniforms.pool_height + 0.01) {
+             normal = vec3<f32>(0.0, 1.0, 0.0);
+        } else {
+             // Wall normal depends on which side
+             // Simplified: just point inward roughly
+             // Ideally we'd calculate the exact normal of the slanted wall
+             // But for now let's just use box-like logic but slanted?
+             // Or just stick to box logic for frustum walls since they are flat planes
+             if abs(point.x) > abs(point.z) {
+                 normal = vec3<f32>(-sign(point.x), 0.2, 0.0); // Slanted
+             } else {
+                 normal = vec3<f32>(0.0, 0.2, -sign(point.z)); // Slanted
+             }
+             normal = normalize(normal);
+        }
+    } else { // Cube/Cuboid
+        if abs(point.x) > pool_size.x - 0.01 {
+            normal = vec3<f32>(-sign(point.x), 0.0, 0.0);
+        } else if abs(point.z) > pool_size.y - 0.01 {
+            normal = vec3<f32>(0.0, 0.0, -sign(point.z));
+        } else {
+            normal = vec3<f32>(0.0, 1.0, 0.0);
+        }
     }
     
     let refracted_light = -refract(-light, vec3<f32>(0.0, 1.0, 0.0), IOR_AIR / IOR_WATER);

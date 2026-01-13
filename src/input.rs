@@ -2,6 +2,7 @@
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use crate::physics::ObjectState;
+use crate::gui::PoolShape;
 
 /// Interaction modes
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -69,6 +70,7 @@ impl InputManager {
         sphere_radius: f32,
         pool_width: f32,
         pool_length: f32,
+        pool_shape: &PoolShape,
     ) -> Option<usize> {
         self.mouse_pressed = true;
         self.mouse_pos = Vec2::new(x, y);
@@ -103,7 +105,31 @@ impl InputManager {
             let half_w = pool_width / 2.0;
             let half_l = pool_length / 2.0;
             
-            if point.x.abs() < half_w && point.z.abs() < half_l {
+            let is_hit = match pool_shape {
+                PoolShape::Cube | PoolShape::Cuboid => {
+                    point.x.abs() < half_w && point.z.abs() < half_l
+                },
+                PoolShape::Cylinder => {
+                    // Check radius (using width as diameter)
+                    let radius = half_w;
+                    point.x * point.x + point.z * point.z < radius * radius
+                },
+                PoolShape::Frustum => {
+                    // Frustum is narrower at bottom, but water is at y=0
+                    // Interpolate scale at y=0 (assuming pool height 1.0, wall height 0.4)
+                    // This is an approximation since we don't have exact heights here
+                    // But usually water level is 0.0
+                    // Let's use a safe approximation or pass heights if needed.
+                    // For now, let's use the same logic as shader: mix(0.7, 1.0, t)
+                    // Assuming standard heights: pool=1.0, wall=0.4. y=0 is 1.0 up from bottom.
+                    // Total height 1.4. t = 1.0/1.4 = 0.71.
+                    // scale = 0.7 + (1.0-0.7)*0.71 = 0.7 + 0.213 = 0.913.
+                    let scale = 0.913;
+                    point.x.abs() < half_w * scale && point.z.abs() < half_l * scale
+                }
+            };
+
+            if is_hit {
                 self.mode = InteractionMode::AddDrops;
             } else {
                 self.mode = InteractionMode::OrbitCamera;

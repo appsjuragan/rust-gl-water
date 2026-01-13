@@ -73,14 +73,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {{
     let water_info = textureSample(water_texture, water_sampler, coord);
     let caustic = textureSample(caustic_texture, caustic_sampler, coord);
     
-    // Calculate tile coordinates based on which face we're on
+    // Calculate tile coordinates based on shape
     var tile_coord: vec2<f32>;
-    if abs(position.x) > pool_size.x - 0.01 {{
-        tile_coord = position.yz * 0.5 + vec2<f32>(1.0, 0.5);
-    }} else if abs(position.z) > pool_size.y - 0.01 {{
-        tile_coord = position.yx * 0.5 + vec2<f32>(1.0, 0.5);
-    }} else {{
-        tile_coord = position.xz * 0.5 + 0.5;
+    
+    if (uniforms.pool_shape == 2) {{ // Cylinder
+        let r = length(position.xz);
+        if (r > pool_size.x - 0.05) {{ // Wall
+            // Use angle for U, y for V
+            let angle = atan2(position.z, position.x);
+            let u = angle / (2.0 * 3.14159) + 0.5;
+            // Scale u to repeat texture around cylinder
+            tile_coord = vec2<f32>(u * 4.0, position.y * 0.5 + 0.5);
+        }} else {{ // Floor
+            tile_coord = position.xz * 0.5 + 0.5;
+        }}
+    }} else {{ // Cube/Cuboid/Frustum
+        if abs(position.x) > pool_size.x - 0.01 {{
+            tile_coord = position.yz * 0.5 + vec2<f32>(1.0, 0.5);
+        }} else if abs(position.z) > pool_size.y - 0.01 {{
+            tile_coord = position.yx * 0.5 + vec2<f32>(1.0, 0.5);
+        }} else {{
+            tile_coord = position.xz * 0.5 + 0.5;
+        }}
     }}
     
     let tile_color = textureSample(tile_texture, tile_sampler, tile_coord).rgb;

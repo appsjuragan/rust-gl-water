@@ -26,7 +26,8 @@ pub struct CommonUniforms {
     pub shape_type: i32,
     pub texture_type: i32,
     pub object_count: i32,
-    pub _padding: [f32; 3],
+    pub pool_shape: i32,
+    pub _padding: [f32; 2],
     pub light_color: [f32; 4],
 }
 
@@ -43,7 +44,8 @@ impl Default for CommonUniforms {
             shape_type: 0,
             texture_type: 0,
             object_count: 1,
-            _padding: [0.0; 3],
+            pool_shape: 0,
+            _padding: [0.0; 2],
             light_color: [1.0, 1.0, 1.0, 1.0],
         }
     }
@@ -999,6 +1001,152 @@ impl Renderer {
         (vertices, indices)
     }
 
+    /// Create a frustum (truncated pyramid) pool mesh - narrower at bottom
+    fn create_frustum_pool_mesh(bottom_scale: f32) -> (Vec<PoolVertex>, Vec<u32>) {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        
+        // Top is at scale 1.0, bottom is at bottom_scale (e.g., 0.7)
+        let top = 1.0f32;
+        let bot = bottom_scale;
+        
+        // Bottom face (smaller square)
+        let bottom_verts = [
+            PoolVertex { position: [-bot, -1.0, -bot], normal: [0.0, -1.0, 0.0], uv: [0.0, 0.0] },
+            PoolVertex { position: [ bot, -1.0, -bot], normal: [0.0, -1.0, 0.0], uv: [1.0, 0.0] },
+            PoolVertex { position: [ bot, -1.0,  bot], normal: [0.0, -1.0, 0.0], uv: [1.0, 1.0] },
+            PoolVertex { position: [-bot, -1.0,  bot], normal: [0.0, -1.0, 0.0], uv: [0.0, 1.0] },
+        ];
+        vertices.extend_from_slice(&bottom_verts);
+        indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+        
+        // Four trapezoidal walls
+        let wall_data = [
+            // Front wall (z = positive)
+            ([-top, 1.0, top], [top, 1.0, top], [bot, -1.0, bot], [-bot, -1.0, bot], [0.0, 0.0, 1.0]),
+            // Back wall (z = negative)
+            ([top, 1.0, -top], [-top, 1.0, -top], [-bot, -1.0, -bot], [bot, -1.0, -bot], [0.0, 0.0, -1.0]),
+            // Right wall (x = positive)
+            ([top, 1.0, top], [top, 1.0, -top], [bot, -1.0, -bot], [bot, -1.0, bot], [1.0, 0.0, 0.0]),
+            // Left wall (x = negative)
+            ([-top, 1.0, -top], [-top, 1.0, top], [-bot, -1.0, bot], [-bot, -1.0, -bot], [-1.0, 0.0, 0.0]),
+        ];
+        
+        let mut idx = 4u32; // Start after bottom face vertices
+        for (tl, tr, br, bl, normal) in wall_data {
+            vertices.push(PoolVertex { position: tl, normal, uv: [0.0, 0.0] });
+            vertices.push(PoolVertex { position: tr, normal, uv: [1.0, 0.0] });
+            vertices.push(PoolVertex { position: br, normal, uv: [1.0, 1.0] });
+            vertices.push(PoolVertex { position: bl, normal, uv: [0.0, 1.0] });
+            
+            indices.extend_from_slice(&[idx, idx+1, idx+2, idx, idx+2, idx+3]);
+            idx += 4;
+        }
+        
+        (vertices, indices)
+    }
+    
+    /// Create a cylindrical pool mesh
+    fn create_cylinder_pool_mesh(segments: u32) -> (Vec<PoolVertex>, Vec<u32>) {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        
+        let radius = 1.0f32;
+        
+        // Bottom face (circle) - center vertex + ring
+        // Normal points UP (toward inside of pool, since we view from above)
+        let center_idx = 0u32;
+        vertices.push(PoolVertex { 
+            position: [0.0, -1.0, 0.0], 
+            normal: [0.0, 1.0, 0.0],  // Changed to point up (inside pool)
+            uv: [0.5, 0.5] 
+        });
+        
+        // Ring vertices for bottom face - CCW winding when viewed from above
+        for i in 0..segments {
+            let angle = (i as f32 / segments as f32) * std::f32::consts::PI * 2.0;
+            let x = angle.cos() * radius;
+            let z = angle.sin() * radius;
+            
+            vertices.push(PoolVertex {
+                position: [x, -1.0, z],
+                normal: [0.0, 1.0, 0.0],  // Point up (inside pool)
+                uv: [0.5 + x * 0.5, 0.5 + z * 0.5],
+            });
+        }
+        
+        // Bottom face indices - CCW winding when viewed from above (inside pool)
+        for i in 0..segments {
+            let curr = i + 1;
+            let next = if i + 1 == segments { 1 } else { i + 2 };
+            // CCW when viewed from above: center, next, curr
+            indices.extend_from_slice(&[center_idx, next, curr]);
+        }
+        
+        // Cylindrical wall - normals point INWARD (toward center)
+        let wall_start = vertices.len() as u32;
+        for i in 0..=segments {
+            let angle = (i as f32 / segments as f32) * std::f32::consts::PI * 2.0;
+            let x = angle.cos() * radius;
+            let z = angle.sin() * radius;
+            let u = i as f32 / segments as f32;
+            
+            // Normal points INWARD (negative of outward direction)
+            let nx = -angle.cos();
+            let nz = -angle.sin();
+            
+            // Bottom vertex of wall
+            vertices.push(PoolVertex {
+                position: [x, -1.0, z],
+                normal: [nx, 0.0, nz],
+                uv: [u, 1.0],
+            });
+            
+            // Top vertex of wall
+            vertices.push(PoolVertex {
+                position: [x, 1.0, z],
+                normal: [nx, 0.0, nz],
+                uv: [u, 0.0],
+            });
+        }
+        
+        // Wall indices - CCW winding when viewed from inside
+        for i in 0..segments {
+            let base = wall_start + i * 2;
+            // For inside view with inward normals:
+            // Triangle 1: bottom_curr, top_curr, bottom_next (CCW from inside)
+            // Triangle 2: top_curr, top_next, bottom_next (CCW from inside)
+            indices.extend_from_slice(&[
+                base, base + 1, base + 2,      // bottom_i, top_i, bottom_i+1
+                base + 1, base + 3, base + 2,  // top_i, top_i+1, bottom_i+1
+            ]);
+        }
+        
+        (vertices, indices)
+    }
+    
+    /// Update pool mesh based on selected shape
+    pub fn update_pool_mesh(&mut self, device: &wgpu::Device, shape: &str) {
+        let (vertices, indices) = match shape {
+            "Cuboid" | "Cube" => Self::create_cube_mesh(),
+            "Frustum" => Self::create_frustum_pool_mesh(0.7), // 70% size at bottom
+            "Cylinder" => Self::create_cylinder_pool_mesh(32),
+            _ => Self::create_cube_mesh(), // Default to cube
+        };
+        
+        self.pool_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Pool Vertex Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        self.pool_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Pool Index Buffer"),
+            contents: bytemuck::cast_slice(&indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        self.pool_index_count = indices.len() as u32;
+    }
+
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         let (depth_texture, depth_texture_view) = Self::create_depth_texture(device, width, height);
         self.depth_texture = depth_texture;
@@ -1015,6 +1163,7 @@ impl Renderer {
         shape_type: i32,
         texture_type: i32,
         light_color: [f32; 3],
+        pool_shape: i32,
     ) {
         self.camera_uniform.update(camera);
         queue.write_buffer(
@@ -1041,6 +1190,7 @@ impl Renderer {
         self.common_uniform.texture_type = texture_type;
         self.common_uniform.object_count = count as i32;
         self.common_uniform.light_color = [light_color[0], light_color[1], light_color[2], 1.0];
+        self.common_uniform.pool_shape = pool_shape;
 
         // self.sphere_center is no longer tracked per object in Renderer struct
         self.sphere_radius = sphere_radius;

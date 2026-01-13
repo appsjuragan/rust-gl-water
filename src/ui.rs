@@ -167,16 +167,18 @@ impl UiRenderer {
         });
         
         // Quads for UI elements
-        // 1. Top-right FPS counter
+        // 1. Top-right FPS counter (larger for better visibility)
         // 2. Bottom status bar
         let vertices = [
-            // FPS Counter Quad (top right)
-            UiVertex { pos: [0.70, 0.95], uv: [0.0, 0.0] },
-            UiVertex { pos: [0.70, 0.85], uv: [0.0, 0.5] },
-            UiVertex { pos: [0.98, 0.95], uv: [1.0, 0.0] },
-            UiVertex { pos: [0.98, 0.95], uv: [1.0, 0.0] },
-            UiVertex { pos: [0.70, 0.85], uv: [0.0, 0.5] },
-            UiVertex { pos: [0.98, 0.85], uv: [1.0, 0.5] },
+            // FPS Counter Quad (top right, enlarged)
+            // UV U goes from 0.0 to 0.25 to only show the text part of the texture (approx 128px width)
+            // instead of the full 512px which makes it look tiny/squashed
+            UiVertex { pos: [0.55, 0.95], uv: [0.0, 0.0] },
+            UiVertex { pos: [0.55, 0.80], uv: [0.0, 0.5] },
+            UiVertex { pos: [0.98, 0.95], uv: [0.25, 0.0] },
+            UiVertex { pos: [0.98, 0.95], uv: [0.25, 0.0] },
+            UiVertex { pos: [0.55, 0.80], uv: [0.0, 0.5] },
+            UiVertex { pos: [0.98, 0.80], uv: [0.25, 0.5] },
 
             // Status Bar Quad (bottom left)
             UiVertex { pos: [-0.98, -0.85], uv: [0.0, 0.5] },
@@ -222,7 +224,7 @@ impl UiRenderer {
         
         let bytes_per_row = 512; // Adjusted for texture width
         let mut pixels = vec![0u8; 64 * bytes_per_row];
-        let scale = 2;
+        let scale = 2; // Keep at 2 for proper rendering, quad size handles display enlargement
 
         let draw_char = |c: char, ox: usize, oy: usize, pixels: &mut [u8]| {
             let pattern: &[u8] = match c {
