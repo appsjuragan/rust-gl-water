@@ -2,6 +2,9 @@
 
 use glam::{Vec3, Quat};
 use crate::gui::PoolShape;
+use std::sync::Arc;
+use crate::core::shape::{Shape, ShapeParams};
+use crate::core::physics_trait::PhysicsState;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ObjectState {
@@ -48,6 +51,9 @@ pub struct PhysicsEngine {
     
     // Random seed
     pub seed: u32,
+
+    // shape
+    pub current_shape: Arc<dyn Shape>,
 }
 
 impl Default for PhysicsEngine {
@@ -68,7 +74,7 @@ impl Default for PhysicsEngine {
             radius: 0.25,
             pool_width: 2.0,
             pool_length: 2.0,
-            pool_depth: 0.0,
+            pool_depth: 1.0,
             pool_shape: PoolShape::Cube,
             float_ratio: 0.5, // 50% submerged
             impact_strength: 0.04,
@@ -76,11 +82,19 @@ impl Default for PhysicsEngine {
             gravity_enabled: true,
             mouse_repulsion_enabled: true,
             seed: 12345,
+            current_shape: Arc::new(crate::shapes::Sphere::new()),
         }
     }
 }
 
 impl PhysicsEngine {
+    pub fn set_shape(&mut self, shape_name: &str) {
+        let registry = crate::shapes::create_default_registry();
+        if let Some(shape) = registry.get(shape_name) {
+            self.current_shape = shape;
+        }
+    }
+
     fn random_f32_static(seed: &mut u32) -> f32 {
         *seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
         (*seed as f32) / (u32::MAX as f32)
@@ -208,49 +222,59 @@ impl PhysicsEngine {
             }
             
             // Wall collisions
+            let collider = self.current_shape.as_ref().collider();
+            let shape_params = ShapeParams {
+                radius: self.radius,
+                rotation: obj.rotation,
+                scale: Vec3::splat(self.radius), // Apply radius as scale
+            };
+
+            // Create PhysicsState adapter
+            let mut state = PhysicsState {
+                position: obj.center,
+                velocity: obj.velocity,
+                rotation: obj.rotation,
+                angular_velocity: obj.angular_velocity,
+                mass: 1.0, // Default mass
+            };
+
             match pool_shape {
                 PoolShape::Cylinder => {
-                    let dist_sq = obj.center.x * obj.center.x + obj.center.z * obj.center.z;
-                    let max_dist = pool_width / 2.0 - radius;
-                    
-                    if dist_sq > max_dist * max_dist {
-                        let dist = dist_sq.sqrt();
-                        if dist > 0.0001 {
-                            let normal = Vec3::new(obj.center.x, 0.0, obj.center.z) / dist;
-                            obj.center.x = normal.x * max_dist;
-                            obj.center.z = normal.z * max_dist;
-                            
-                            // Reflect velocity
-                            let v_dot_n = obj.velocity.dot(normal);
-                            if v_dot_n > 0.0 {
-                                obj.velocity -= normal * (v_dot_n * 1.5); // Bounce
-                                
-                                // Add friction torque
-                                let tangent = (obj.velocity - normal * v_dot_n).normalize_or_zero();
-                                let torque_axis = normal.cross(tangent);
-                                obj.angular_velocity += torque_axis * v_dot_n * 5.0;
-                            }
-                        }
-                    }
+                    collider.collide_with_cylinder(
+                        &mut state,
+                        pool_width / 2.0,
+                        self.current_shape.as_ref(),
+                        &shape_params,
+                    );
                 },
                 PoolShape::Frustum => {
-                    // Approximate frustum collision
-                    let h_total = 1.4;
-                    let y_rel = obj.center.y + 1.0; // relative to bottom
-                    let t = (y_rel / h_total).clamp(0.0, 1.0);
-                    let scale = 0.7 + (1.0 - 0.7) * t;
-                    
-                    let half_width = (pool_width / 2.0) * scale;
-                    let half_length = (pool_length / 2.0) * scale;
-                    
-                    Self::collide_box(obj, half_width, half_length, radius);
+                    // Assuming top scale 1.0, bottom 0.7
+                    collider.collide_with_frustum(
+                        &mut state,
+                        1.0,
+                        0.7,
+                        self.current_shape.as_ref(),
+                        &shape_params,
+                    );
                 },
                 _ => {
                     let half_width = pool_width / 2.0;
                     let half_length = pool_length / 2.0;
-                    Self::collide_box(obj, half_width, half_length, radius);
+                    collider.collide_with_box(
+                        &mut state,
+                        half_width,
+                        half_length,
+                        self.current_shape.as_ref(),
+                        &shape_params,
+                    );
                 }
             }
+            
+            // Sync back to ObjectState
+            obj.center = state.position;
+            obj.velocity = state.velocity;
+            obj.rotation = state.rotation;
+            obj.angular_velocity = state.angular_velocity;
             
             // Floor collision
             if obj.center.y < radius - pool_depth {
@@ -269,60 +293,64 @@ impl PhysicsEngine {
         // 2. Solve Object-Object Collisions
         self.solve_object_collisions();
     }
+
     
-    fn collide_box(obj: &mut ObjectState, half_width: f32, half_length: f32, radius: f32) {
-        if obj.center.x < radius - half_width {
-            obj.center.x = radius - half_width;
-            obj.velocity.x = obj.velocity.x.abs() * 0.5;
-            // Friction/Torque
-            obj.angular_velocity.z -= obj.velocity.y * 2.0;
-        } else if obj.center.x > half_width - radius {
-            obj.center.x = half_width - radius;
-            obj.velocity.x = -obj.velocity.x.abs() * 0.5;
-            obj.angular_velocity.z += obj.velocity.y * 2.0;
-        }
-        
-        if obj.center.z < radius - half_length {
-            obj.center.z = radius - half_length;
-            obj.velocity.z = obj.velocity.z.abs() * 0.5;
-            obj.angular_velocity.x += obj.velocity.y * 2.0;
-        } else if obj.center.z > half_length - radius {
-            obj.center.z = half_length - radius;
-            obj.velocity.z = -obj.velocity.z.abs() * 0.5;
-            obj.angular_velocity.x -= obj.velocity.y * 2.0;
-        }
-    }
-    
+
     fn solve_object_collisions(&mut self) {
         let count = self.objects.len();
         if count < 2 { return; }
         
+        let collider = self.current_shape.as_ref().collider();
+        
         // Simple distinct pair iteration
         for i in 0..count {
             for j in (i + 1)..count {
-                let p1 = self.objects[i].center;
-                let p2 = self.objects[j].center;
-                let diff = p1 - p2;
-                let dist_sq = diff.length_squared();
-                let min_dist = self.radius * 2.0; // Assume same radius
+                let shape_params_a = ShapeParams {
+                    radius: self.radius,
+                    rotation: self.objects[i].rotation,
+                    scale: Vec3::splat(self.radius),
+                };
+                let shape_params_b = ShapeParams {
+                    radius: self.radius,
+                    rotation: self.objects[j].rotation,
+                    scale: Vec3::splat(self.radius),
+                };
+
+                // Determine collision using trait
+                 let state_a = PhysicsState {
+                    position: self.objects[i].center,
+                    velocity: self.objects[i].velocity,
+                    rotation: self.objects[i].rotation,
+                    angular_velocity: self.objects[i].angular_velocity,
+                    mass: 1.0,
+                };
                 
-                if dist_sq < min_dist * min_dist {
-                    let dist = dist_sq.sqrt();
-                    if dist < 0.0001 { continue; } // Avoid division by zero
-                    
-                    let overlap = min_dist - dist;
-                    let normal = diff / dist;
+                let state_b = PhysicsState {
+                    position: self.objects[j].center,
+                    velocity: self.objects[j].velocity,
+                    rotation: self.objects[j].rotation,
+                    angular_velocity: self.objects[j].angular_velocity,
+                    mass: 1.0,
+                };
+
+                if let Some(collision) = collider.check_object_collision(
+                    &state_a,
+                    &state_b,
+                    self.current_shape.as_ref(),
+                    self.current_shape.as_ref(), // Assessing same shape for all objects for now
+                    &shape_params_a,
+                    &shape_params_b,
+                ) {
+                    let normal = collision.normal;
+                    let penetration = collision.penetration_depth;
                     
                     // Separate objects
-                    let correction = normal * (overlap * 0.5);
-                    self.objects[i].center += correction;
-                    self.objects[j].center -= correction;
+                    let correction = normal * (penetration * 0.5);
+                    self.objects[i].center -= correction;
+                    self.objects[j].center += correction;
                     
-                    // Exchange momentum (Elastic collision approximation)
-                    // v1' = v1 - dot(v1-v2, n) * n
-                    // v2' = v2 - dot(v2-v1, n) * n(but n is p1-p2, so for v2 use -n)
-                    
-                    let v1 = self.objects[i].velocity;
+                    // Respond to collision
+                     let v1 = self.objects[i].velocity;
                     let v2 = self.objects[j].velocity;
                     
                     let relative_vel = v1 - v2;
@@ -353,33 +381,54 @@ impl PhysicsEngine {
         obj.center += delta;
         
         // Clamp to pool bounds
+        // Clamp to pool bounds
+        let collider = self.current_shape.as_ref().collider();
+        let shape_params = ShapeParams {
+            radius: self.radius,
+            rotation: obj.rotation,
+            scale: Vec3::splat(self.radius),
+        };
+        
+        let mut state = PhysicsState {
+            position: obj.center,
+            velocity: Vec3::ZERO,
+            rotation: obj.rotation,
+            angular_velocity: Vec3::ZERO,
+            mass: 1.0,
+        };
+
         match self.pool_shape {
             PoolShape::Cylinder => {
-                let max_dist = self.pool_width / 2.0 - self.radius;
-                let dist_sq = obj.center.x * obj.center.x + obj.center.z * obj.center.z;
-                if dist_sq > max_dist * max_dist {
-                    let dist = dist_sq.sqrt();
-                    if dist > 0.0001 {
-                        let normal = Vec3::new(obj.center.x, 0.0, obj.center.z) / dist;
-                        obj.center.x = normal.x * max_dist;
-                        obj.center.z = normal.z * max_dist;
-                    }
-                }
+                collider.collide_with_cylinder(
+                    &mut state,
+                    self.pool_width / 2.0,
+                    self.current_shape.as_ref(),
+                    &shape_params,
+                );
+            },
+            PoolShape::Frustum => {
+                collider.collide_with_frustum(
+                    &mut state,
+                    1.0, 
+                    0.7, 
+                    self.current_shape.as_ref(), 
+                    &shape_params,
+                );
             },
             _ => {
                 let half_width = self.pool_width / 2.0;
                 let half_length = self.pool_length / 2.0;
-                
-                obj.center.x = obj.center.x.clamp(
-                    self.radius - half_width,
-                    half_width - self.radius,
-                );
-                obj.center.z = obj.center.z.clamp(
-                    self.radius - half_length,
-                    half_length - self.radius,
+                collider.collide_with_box(
+                    &mut state,
+                    half_width,
+                    half_length,
+                    self.current_shape.as_ref(),
+                    &shape_params,
                 );
             }
         }
+        
+        obj.center = state.position;
         
         obj.center.y = obj.center.y.clamp(
             self.radius - self.pool_depth,

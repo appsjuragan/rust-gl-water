@@ -27,20 +27,7 @@ enum AppState {
     Running,
 }
 
-/// Application configuration
-pub struct AppConfig {
-    pub container_height: f32,
-    pub water_fill_ratio: f32,
-}
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            container_height: 1.4,
-            water_fill_ratio: 0.7,
-        }
-    }
-}
 
 /// Graphics state
 struct GfxState {
@@ -147,7 +134,6 @@ pub struct Application {
     camera: Camera,
     physics: PhysicsEngine,
     input: InputManager,
-    config: AppConfig,
     last_frame: Instant,
     time: f32,
     paused: bool,
@@ -169,7 +155,6 @@ impl Application {
             camera: Camera::default(),
             physics: PhysicsEngine::default(),
             input: InputManager::default(),
-            config: AppConfig::default(),
             last_frame: Instant::now(),
             time: 0.0,
             paused: false,
@@ -409,6 +394,19 @@ impl Application {
                     self.physics.gravity = Vec3::new(0.0, -9.81 * config.gravity, 0.0);
                     self.physics.pool_shape = config.pool_shape;
                     
+                    // Set dimensions based on shape
+                    let (width, length) = match config.pool_shape {
+                        PoolShape::Cuboid => (2.0, 3.0),
+                        _ => (2.0, 2.0),
+                    };
+                    
+                    self.physics.pool_width = width;
+                    self.physics.pool_length = length;
+                    gfx.renderer.pool_width = width;
+                    gfx.renderer.pool_length = length;
+                    gfx.water.pool_width = width;
+                    gfx.water.pool_length = length;
+                    
                     // Reset object position and velocity
                     self.physics.reset_objects(config.object_count);
                     
@@ -419,6 +417,7 @@ impl Application {
                         Shape::Cube => "Cube",
                     };
                     gfx.renderer.update_object_mesh(&gfx.device, shape_name);
+                    self.physics.set_shape(shape_name);
                     
                     // Update pool shape mesh
                     let pool_shape_name = match config.pool_shape {
@@ -543,36 +542,14 @@ impl Application {
         Ok(())
     }
 
-    fn update_pool_dimensions(&mut self) {
-        let water_depth = self.config.container_height * self.config.water_fill_ratio;
-        let wall_height = self.config.container_height * (1.0 - self.config.water_fill_ratio);
 
-        self.physics.pool_depth = water_depth;
-
-        if let Some(gfx) = &mut self.gfx {
-            gfx.renderer.update_dimensions(
-                self.physics.pool_width,
-                self.physics.pool_length,
-                water_depth,
-                wall_height,
-            );
-            gfx.water.update_dimensions(
-                self.physics.pool_width,
-                self.physics.pool_length,
-            );
-        }
-    }
 
     fn on_resize(&mut self, width: u32, height: u32) {
         self.camera.set_aspect(width as f32, height as f32);
         self.input.set_screen_size(width as f32, height as f32);
 
-        // Auto-resize pool to fill screen
-        let (visible_width, visible_height) = self.camera.visible_area();
-        self.physics.pool_width = visible_width;
-        self.physics.pool_length = visible_height;
-
-        self.update_pool_dimensions();
+        // Keep pool dimensions fixed - don't auto-resize on window resize
+        // Pool dimensions are set on startup and by update_pool_dimensions
     }
 }
 
@@ -701,6 +678,8 @@ impl ApplicationHandler for Application {
                             self.physics.radius,
                             self.physics.pool_width,
                             self.physics.pool_length,
+                            self.gfx.as_ref().unwrap().renderer.pool_height,
+                            self.gfx.as_ref().unwrap().renderer.wall_height,
                             &self.run_config.pool_shape,
                         );
                         self.dragged_object_index = hit_idx;

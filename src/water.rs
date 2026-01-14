@@ -2,7 +2,7 @@
 
 use wgpu::util::DeviceExt;
 
-use crate::shaders::water_sim::{DROP_SHADER, NORMAL_SHADER, SPHERE_VOLUME_SHADER, UPDATE_SHADER};
+use crate::shaders::water_sim::{DROP_SHADER, NORMAL_SHADER, UPDATE_SHADER, sphere_volume_shader};
 
 /// Resolution of the water simulation texture
 pub const WATER_TEXTURE_SIZE: u32 = 512;
@@ -266,7 +266,7 @@ impl Water {
         let drop_pipeline = create_pipeline(DROP_SHADER, "Drop Pipeline");
         let update_pipeline = create_pipeline(UPDATE_SHADER, "Update Pipeline");
         let normal_pipeline = create_pipeline(NORMAL_SHADER, "Normal Pipeline");
-        let sphere_pipeline = create_pipeline(SPHERE_VOLUME_SHADER, "Sphere Pipeline");
+        let sphere_pipeline = create_pipeline(&sphere_volume_shader(), "Sphere Pipeline");
 
         Self {
             _texture_a: texture_a,
@@ -559,9 +559,5 @@ impl Water {
         self.swap();
     }
 
-    /// Update pool dimensions
-    pub fn update_dimensions(&mut self, width: f32, length: f32) {
-        self.pool_width = width;
-        self.pool_length = length;
-    }
+
 }

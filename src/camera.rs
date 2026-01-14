@@ -85,11 +85,7 @@ impl Camera {
     }
     
     /// Calculate visible area at water level (y=0)
-    pub fn visible_area(&self) -> (f32, f32) {
-        let visible_height = 2.0 * self.distance * (self.fov.to_radians() / 2.0).tan();
-        let visible_width = visible_height * self.aspect;
-        (visible_width, visible_height)
-    }
+
 
     /// Zoom camera (change distance)
     pub fn zoom(&mut self, delta: f32) {
