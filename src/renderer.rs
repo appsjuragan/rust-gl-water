@@ -23,8 +23,8 @@ pub struct CommonUniforms {
     pub wall_height: f32,
     pub pool_size: [f32; 2],
     pub light_dir: [f32; 4],
-    pub sphere_centers: [[f32; 4]; 5],
-    pub sphere_rotations: [[f32; 4]; 5],
+    pub sphere_centers: [[f32; 4]; 10],
+    pub sphere_rotations: [[f32; 4]; 10],
     pub sphere_radius: f32,
     pub time: f32,
     pub shape_type: i32,
@@ -42,13 +42,13 @@ impl Default for CommonUniforms {
             wall_height: 0.4,
             pool_size: [1.0, 1.0],
             light_dir: [-0.577, 0.577, 0.577, 0.0],
-            sphere_centers: [[0.0; 4]; 5],
-            sphere_rotations: [[0.0, 0.0, 0.0, 1.0]; 5],
+            sphere_centers: [[0.0; 4]; 10],
+            sphere_rotations: [[0.0, 0.0, 0.0, 1.0]; 10],
             sphere_radius: 0.25,
             time: 0.0,
             shape_type: 0,
             texture_type: 0,
-            object_count: 1,
+            object_count: 5,
             pool_shape: 0,
             _padding: [0.0; 2],
             light_color: [1.0, 1.0, 1.0, 1.0],
@@ -972,7 +972,7 @@ impl Renderer {
         let (vertices, indices) = match shape {
             "Cuboid" | "Cube" => Self::create_cube_pool_mesh(),
             "Frustum" => Self::create_frustum_pool_mesh(0.7), // 70% size at bottom
-            "Cylinder" => Self::create_cylinder_pool_mesh(32),
+            "Tube" => Self::create_cylinder_pool_mesh(32),
             _ => Self::create_cube_pool_mesh(), // Default to cube
         };
         
@@ -1057,9 +1057,9 @@ impl Renderer {
         );
 
         // Populate centers and rotations
-        let mut centers = [[0.0f32; 4]; 5];
-        let mut rotations = [[0.0f32; 4]; 5];
-        let count = objects.len().min(5);
+        let mut centers = [[0.0f32; 4]; 10];
+        let mut rotations = [[0.0f32; 4]; 10];
+        let count = objects.len().min(10);
         for i in 0..count {
             centers[i] = [objects[i].center.x, objects[i].center.y, objects[i].center.z, 0.0];
             rotations[i] = [objects[i].rotation.x, objects[i].rotation.y, objects[i].rotation.z, objects[i].rotation.w];

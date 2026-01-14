@@ -71,15 +71,16 @@ struct ObjectTransition {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct SphereVolumeUniforms {
-    objects: [ObjectTransition; 5],
-    radius: f32,
-    _pad0: f32, // Pad to 8-byte alignment for pool_size (vec2)
-    pool_size: [f32; 2],
-    shape_type: i32,
-    object_count: i32,
-    _pad1: f32,
-    _pad2: f32,
+    pub objects: [ObjectTransition; 10],
+    pub radius: f32,
+    pub _pad0: f32, // Pad to 8-byte alignment for pool_size (vec2)
+    pub pool_size: [f32; 2],
+    pub shape_type: i32,
+    pub object_count: i32,
+    pub _pad1: f32,
+    pub _pad2: f32,
 }
+
 
 impl Water {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -164,7 +165,7 @@ impl Water {
                     new_center: [0.0; 4],
                     strength: 0.0,
                     _padding: [0.0; 3],
-                }; 5],
+                }; 10],
                 radius: 0.25,
                 _pad0: 0.0,
                 pool_size: [pool_width, pool_length],
@@ -502,9 +503,9 @@ impl Water {
             new_center: [0.0; 4],
             strength: 0.0,
             _padding: [0.0; 3],
-        }; 5];
+        }; 10];
 
-        let count = objects.len().min(5);
+        let count = objects.len().min(10);
         for i in 0..count {
             let obj = &objects[i];
             let displacement = (obj.center - obj.old_center).length();

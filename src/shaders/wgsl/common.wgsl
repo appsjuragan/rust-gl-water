@@ -12,8 +12,8 @@ struct CommonUniforms {
     wall_height: f32,
     pool_size: vec2<f32>,
     light_dir: vec4<f32>,
-    sphere_centers: array<vec4<f32>, 5>,
-    sphere_rotations: array<vec4<f32>, 5>,
+    sphere_centers: array<vec4<f32>, 10>,
+    sphere_rotations: array<vec4<f32>, 10>,
     sphere_radius: f32,
     time: f32,
     shape_type: i32,
@@ -248,6 +248,7 @@ fn intersect_single_shape(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, 
 fn intersect_shape_any(origin: vec3<f32>, ray: vec3<f32>, uniforms: CommonUniforms) -> vec2<f32> {
     var best_t = 1e30;
     var best_idx = -1.0;
+    
     if (uniforms.object_count > 0) {
         let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[0].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[0]);
         if (t > 0.0 && t < best_t) { best_t = t; best_idx = 0.0; }
@@ -268,6 +269,27 @@ fn intersect_shape_any(origin: vec3<f32>, ray: vec3<f32>, uniforms: CommonUnifor
         let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[4].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[4]);
         if (t > 0.0 && t < best_t) { best_t = t; best_idx = 4.0; }
     }
+    if (uniforms.object_count > 5) {
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[5].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[5]);
+        if (t > 0.0 && t < best_t) { best_t = t; best_idx = 5.0; }
+    }
+    if (uniforms.object_count > 6) {
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[6].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[6]);
+        if (t > 0.0 && t < best_t) { best_t = t; best_idx = 6.0; }
+    }
+    if (uniforms.object_count > 7) {
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[7].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[7]);
+        if (t > 0.0 && t < best_t) { best_t = t; best_idx = 7.0; }
+    }
+    if (uniforms.object_count > 8) {
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[8].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[8]);
+        if (t > 0.0 && t < best_t) { best_t = t; best_idx = 8.0; }
+    }
+    if (uniforms.object_count > 9) {
+        let t = intersect_single_shape(origin, ray, uniforms.sphere_centers[9].xyz, uniforms.sphere_radius, uniforms.shape_type, uniforms.sphere_rotations[9]);
+        if (t > 0.0 && t < best_t) { best_t = t; best_idx = 9.0; }
+    }
+
     if (best_idx < -0.5) { return vec2<f32>(-1.0, -1.0); }
     return vec2<f32>(best_t, best_idx);
 }
@@ -327,7 +349,7 @@ fn get_wall_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f
     let pool_size = uniforms.pool_size;
     let light = uniforms.light_dir.xyz;
     var normal: vec3<f32>;
-    if (uniforms.pool_shape == 2) { // Cylinder
+    if (uniforms.pool_shape == 2) { // Tube
         let r = length(point.xz);
         if (r > pool_size.x - 0.05) { normal = normalize(vec3<f32>(-point.x, 0.0, -point.z)); }
         else { normal = vec3<f32>(0.0, 1.0, 0.0); }
@@ -357,11 +379,18 @@ fn get_wall_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f
 fn get_sphere_color(point: vec3<f32>, uniforms: CommonUniforms, water_info: vec4<f32>, caustic_sample: vec4<f32>, shape_idx: i32) -> vec3<f32> {
     var center: vec3<f32>;
     var rotation: vec4<f32>;
+    
     if (shape_idx == 0) { center = uniforms.sphere_centers[0].xyz; rotation = uniforms.sphere_rotations[0]; }
     else if (shape_idx == 1) { center = uniforms.sphere_centers[1].xyz; rotation = uniforms.sphere_rotations[1]; }
     else if (shape_idx == 2) { center = uniforms.sphere_centers[2].xyz; rotation = uniforms.sphere_rotations[2]; }
     else if (shape_idx == 3) { center = uniforms.sphere_centers[3].xyz; rotation = uniforms.sphere_rotations[3]; }
-    else { center = uniforms.sphere_centers[4].xyz; rotation = uniforms.sphere_rotations[4]; }
+    else if (shape_idx == 4) { center = uniforms.sphere_centers[4].xyz; rotation = uniforms.sphere_rotations[4]; }
+    else if (shape_idx == 5) { center = uniforms.sphere_centers[5].xyz; rotation = uniforms.sphere_rotations[5]; }
+    else if (shape_idx == 6) { center = uniforms.sphere_centers[6].xyz; rotation = uniforms.sphere_rotations[6]; }
+    else if (shape_idx == 7) { center = uniforms.sphere_centers[7].xyz; rotation = uniforms.sphere_rotations[7]; }
+    else if (shape_idx == 8) { center = uniforms.sphere_centers[8].xyz; rotation = uniforms.sphere_rotations[8]; }
+    else { center = uniforms.sphere_centers[9].xyz; rotation = uniforms.sphere_rotations[9]; }
+    
     let radius = uniforms.sphere_radius;
     let light = uniforms.light_dir.xyz;
     let inv_rotation = vec4<f32>(-rotation.xyz, rotation.w);

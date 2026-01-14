@@ -239,7 +239,7 @@ impl PhysicsEngine {
             };
 
             match pool_shape {
-                PoolShape::Cylinder => {
+                PoolShape::Tube => {
                     collider.collide_with_cylinder(
                         &mut state,
                         pool_width / 2.0,
@@ -398,7 +398,7 @@ impl PhysicsEngine {
         };
 
         match self.pool_shape {
-            PoolShape::Cylinder => {
+            PoolShape::Tube => {
                 collider.collide_with_cylinder(
                     &mut state,
                     self.pool_width / 2.0,
@@ -439,13 +439,15 @@ impl PhysicsEngine {
     pub fn reset_objects(&mut self, count: usize) {
         self.objects.clear();
         for i in 0..count {
-            // Scatter objects slightly
-            let offset_x = (i as f32 % 3.0 - 1.0) * 0.5;
-            let offset_z = ((i / 3) as f32 - 0.5) * 0.5;
+            // Scatter objects in a grid or spiral
+            let row = i / 3;
+            let col = i % 3;
+            let offset_x = (col as f32 - 1.0) * 0.6;
+            let offset_z = (row as f32 - 1.0) * 0.6;
             
             self.objects.push(ObjectState {
-                center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.5, offset_z), // Drop from height
-                old_center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.5, offset_z),
+                center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.4, offset_z), // Drop from height
+                old_center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.4, offset_z),
                 velocity: Vec3::ZERO,
                 rotation: Quat::IDENTITY,
                 angular_velocity: Vec3::ZERO,

@@ -111,7 +111,7 @@ impl InputManager {
                 PoolShape::Cube | PoolShape::Cuboid => {
                     point.x.abs() < half_w && point.z.abs() < half_l
                 },
-                PoolShape::Cylinder => {
+                PoolShape::Tube => {
                     // Check radius (using width as diameter)
                     let radius = half_w;
                     point.x * point.x + point.z * point.z < radius * radius

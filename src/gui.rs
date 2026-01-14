@@ -23,16 +23,19 @@ pub enum Texture {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Backend {
-    Auto,    // Use wgpu::Backends::all() - let wgpu choose
-    Vulkan,  // Force Vulkan backend
+    Auto,
+    Vulkan,
+    OpenGL,
+    Dx11,
+    Dx12,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PoolShape {
-    Cube,       // Equal width/length/depth (current default)
-    Cuboid,     // Rectangular (same as cube visually)
-    Frustum,    // Truncated pyramid - narrows toward bottom
-    Cylinder,   // Circular pool
+    Tube,       // Renamed from Cylinder
+    Cube,
+    Cuboid,
+    Frustum,
 }
 
 #[derive(Debug, Clone)]
@@ -51,11 +54,11 @@ impl Default for AppConfig {
         Self {
             gravity: 1.0,
             shape: Shape::Sphere,
-            texture: Texture::Glass,
+            texture: Texture::Wood, // Matching UI image
             light_color: [255, 255, 255],
-            object_count: 1,
+            object_count: 5, // Matching UI image
             backend: Backend::Auto,
-            pool_shape: PoolShape::Cube,
+            pool_shape: PoolShape::Cube, // Matching UI image
         }
     }
 }

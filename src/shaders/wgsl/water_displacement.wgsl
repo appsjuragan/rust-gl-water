@@ -29,7 +29,7 @@ struct ObjectTransition {
 }
 
 struct SphereVolumeUniforms {
-    objects: array<ObjectTransition, 5>,
+    objects: array<ObjectTransition, 10>,
     radius: f32,
     _pad0: f32,
     pool_size: vec2<f32>,
@@ -101,10 +101,57 @@ fn volume_in_shape(center: vec3<f32>, uv: vec2<f32>, strength: f32) -> f32 {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var info = textureSample(input_texture, texture_sampler, in.uv);
-    for (var i = 0; i < uniforms.object_count; i++) {
-        let obj = uniforms.objects[i];
+    
+    if (uniforms.object_count > 0) {
+        let obj = uniforms.objects[0];
         info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
         info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
     }
+    if (uniforms.object_count > 1) {
+        let obj = uniforms.objects[1];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 2) {
+        let obj = uniforms.objects[2];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 3) {
+        let obj = uniforms.objects[3];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 4) {
+        let obj = uniforms.objects[4];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 5) {
+        let obj = uniforms.objects[5];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 6) {
+        let obj = uniforms.objects[6];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 7) {
+        let obj = uniforms.objects[7];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 8) {
+        let obj = uniforms.objects[8];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    if (uniforms.object_count > 9) {
+        let obj = uniforms.objects[9];
+        info.r += volume_in_shape(obj.old_center.xyz, in.uv, obj.strength);
+        info.r -= volume_in_shape(obj.new_center.xyz, in.uv, obj.strength);
+    }
+    
     return info;
 }

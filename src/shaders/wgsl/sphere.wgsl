@@ -39,8 +39,20 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     
-    let center = uniforms.sphere_centers[instance_index].xyz;
-    let rotation = uniforms.sphere_rotations[instance_index];
+    var center: vec3<f32>;
+    var rotation: vec4<f32>;
+    
+    if (instance_index == 0u) { center = uniforms.sphere_centers[0].xyz; rotation = uniforms.sphere_rotations[0]; }
+    else if (instance_index == 1u) { center = uniforms.sphere_centers[1].xyz; rotation = uniforms.sphere_rotations[1]; }
+    else if (instance_index == 2u) { center = uniforms.sphere_centers[2].xyz; rotation = uniforms.sphere_rotations[2]; }
+    else if (instance_index == 3u) { center = uniforms.sphere_centers[3].xyz; rotation = uniforms.sphere_rotations[3]; }
+    else if (instance_index == 4u) { center = uniforms.sphere_centers[4].xyz; rotation = uniforms.sphere_rotations[4]; }
+    else if (instance_index == 5u) { center = uniforms.sphere_centers[5].xyz; rotation = uniforms.sphere_rotations[5]; }
+    else if (instance_index == 6u) { center = uniforms.sphere_centers[6].xyz; rotation = uniforms.sphere_rotations[6]; }
+    else if (instance_index == 7u) { center = uniforms.sphere_centers[7].xyz; rotation = uniforms.sphere_rotations[7]; }
+    else if (instance_index == 8u) { center = uniforms.sphere_centers[8].xyz; rotation = uniforms.sphere_rotations[8]; }
+    else { center = uniforms.sphere_centers[9].xyz; rotation = uniforms.sphere_rotations[9]; }
+    
     let radius = uniforms.sphere_radius;
     
     // Apply rotation to position and normal
@@ -195,7 +207,17 @@ fn fs_main(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @location
     
     if (length(refract_dir_in) > 0.001 && is_transparent) {
         // Use instance_index to get the correct center
-        let center = uniforms.sphere_centers[in.instance_index].xyz;
+        var center: vec3<f32>;
+        if (in.instance_index == 0u) { center = uniforms.sphere_centers[0].xyz; }
+        else if (in.instance_index == 1u) { center = uniforms.sphere_centers[1].xyz; }
+        else if (in.instance_index == 2u) { center = uniforms.sphere_centers[2].xyz; }
+        else if (in.instance_index == 3u) { center = uniforms.sphere_centers[3].xyz; }
+        else if (in.instance_index == 4u) { center = uniforms.sphere_centers[4].xyz; }
+        else if (in.instance_index == 5u) { center = uniforms.sphere_centers[5].xyz; }
+        else if (in.instance_index == 6u) { center = uniforms.sphere_centers[6].xyz; }
+        else if (in.instance_index == 7u) { center = uniforms.sphere_centers[7].xyz; }
+        else if (in.instance_index == 8u) { center = uniforms.sphere_centers[8].xyz; }
+        else { center = uniforms.sphere_centers[9].xyz; }
         
         let rotation = in.rotation;
         let inv_rotation = vec4<f32>(-rotation.xyz, rotation.w);

@@ -303,85 +303,117 @@ impl Application {
                     .resizable(false)
                     .collapsible(false)
                     .show(ctx, |ui| {
-                         ui.heading("Run Parameters");
-                         ui.add_space(10.0);
+                        ui.set_min_width(550.0);
+                        ui.vertical_centered(|ui| {
+                            ui.heading("Run Parameters");
+                        });
+                        ui.add_space(8.0);
                          
-                         ui.label("Gravity (g)");
-                         ui.add(egui::Slider::new(&mut config.gravity, 0.25..=5.0).step_by(0.25));
+                        ui.horizontal(|ui| {
+                            ui.label("Gravity (g)");
+                            ui.add_space(10.0);
+                            ui.add(egui::Slider::new(&mut config.gravity, 0.25..=5.0).step_by(0.25).text("step 0.25"));
+                        });
                          
-                         ui.add_space(10.0);
+                        ui.add_space(16.0);
                          
-                         // Shape and Texture side by side
-                         ui.horizontal(|ui| {
-                             ui.vertical(|ui| {
-                                 ui.label("Shape:");
-                                 ui.radio_value(&mut config.shape, Shape::Sphere, "Sphere");
-                                 ui.radio_value(&mut config.shape, Shape::Torus, "Torus");
-                                 ui.radio_value(&mut config.shape, Shape::Tetrahedron, "Tetrahedron");
-                                 ui.radio_value(&mut config.shape, Shape::Cube, "Cube");
-                             });
+                        // 3-column layout: Shape, Textures, Pool Shape
+                        ui.columns(3, |columns| {
+                            columns[0].vertical(|ui| {
+                                ui.label("Object Shape:");
+                                ui.radio_value(&mut config.shape, Shape::Sphere, "Sphere");
+                                ui.radio_value(&mut config.shape, Shape::Torus, "Torus");
+                                ui.radio_value(&mut config.shape, Shape::Tetrahedron, "Tetrahedron");
+                                ui.radio_value(&mut config.shape, Shape::Cube, "Cube");
+                            });
                              
-                             ui.add_space(40.0);
+                            columns[1].vertical(|ui| {
+                                ui.label("Textures:");
+                                ui.radio_value(&mut config.texture, Texture::Glass, "Glass");
+                                ui.radio_value(&mut config.texture, Texture::Wood, "Wood");
+                                ui.radio_value(&mut config.texture, Texture::Steel, "Steel");
+                                ui.radio_value(&mut config.texture, Texture::Ice, "Ice");
+                            });
                              
-                             ui.vertical(|ui| {
-                                 ui.label("Textures:");
-                                 ui.radio_value(&mut config.texture, Texture::Glass, "Glass");
-                                 ui.radio_value(&mut config.texture, Texture::Wood, "Wood");
-                                 ui.radio_value(&mut config.texture, Texture::Steel, "Steel");
-                                 ui.radio_value(&mut config.texture, Texture::Ice, "Ice");
-                             });
-                         });
+                            columns[2].vertical(|ui| {
+                                ui.label("Pool Shape:");
+                                ui.radio_value(&mut config.pool_shape, PoolShape::Tube, "Tube");
+                                ui.radio_value(&mut config.pool_shape, PoolShape::Cube, "Cube");
+                                ui.radio_value(&mut config.pool_shape, PoolShape::Cuboid, "Cuboid");
+                                ui.radio_value(&mut config.pool_shape, PoolShape::Frustum, "Frustum");
+                            });
+                        });
                          
-                         ui.add_space(10.0);
-                         ui.label("Object Numbers:");
-                         ui.add(egui::Slider::new(&mut config.object_count, 1..=5));
+                        ui.add_space(16.0);
+                        
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label("Object Count:");
+                                ui.add(egui::Slider::new(&mut config.object_count, 1..=10));
+                            });
+                            
+                            ui.add_space(20.0);
 
-                         ui.add_space(10.0);
-                         ui.label("Light Color:");
-                         ui.horizontal(|ui| {
-                             ui.label("Red");
-                             ui.add(egui::Slider::new(&mut config.light_color[0], 1..=255));
-                         });
-                         ui.horizontal(|ui| {
-                             ui.label("Green");
-                             ui.add(egui::Slider::new(&mut config.light_color[1], 1..=255));
-                         });
-                         ui.horizontal(|ui| {
-                             ui.label("Blue");
-                             ui.add(egui::Slider::new(&mut config.light_color[2], 1..=255));
-                         });
+                            // Backend selection
+                            ui.vertical(|ui| {
+                                ui.label("Graphics Backend:");
+                                ui.horizontal(|ui| {
+                                    ui.radio_value(&mut config.backend, Backend::OpenGL, "OpenGL");
+                                    ui.radio_value(&mut config.backend, Backend::Vulkan, "Vulkan");
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.radio_value(&mut config.backend, Backend::Dx11, "DX11");
+                                    ui.radio_value(&mut config.backend, Backend::Dx12, "DX12");
+                                    ui.radio_value(&mut config.backend, Backend::Auto, "Auto");
+                                });
+                            });
+                        });
+
+                        ui.add_space(10.0);
+                        
+                        ui.horizontal(|ui| {
+                           ui.vertical(|ui| {
+                               ui.label("Light Color:");
+                               let mut color_srgba = egui::Color32::from_rgb(config.light_color[0], config.light_color[1], config.light_color[2]);
+                               ui.color_edit_button_srgba(&mut color_srgba);
+                               config.light_color = [color_srgba.r(), color_srgba.g(), color_srgba.b()];
+                               ui.label("color wheel");
+                           });
+                           
+                           ui.vertical(|ui| {
+                               ui.horizontal(|ui| {
+                                   ui.label("Red");
+                                   ui.add(egui::Slider::new(&mut config.light_color[0], 0..=255));
+                               });
+                               ui.horizontal(|ui| {
+                                   ui.label("Green");
+                                   ui.add(egui::Slider::new(&mut config.light_color[1], 0..=255));
+                               });
+                               ui.horizontal(|ui| {
+                                   ui.label("Blue");
+                                   ui.add(egui::Slider::new(&mut config.light_color[2], 0..=255));
+                               });
+                           });
+                        });
                          
-                         ui.add_space(10.0);
-                         ui.separator();
-                         
-                         // Backend and Pool Shape side by side
-                         ui.horizontal(|ui| {
-                             ui.vertical(|ui| {
-                                 ui.label("Graphics Backend:");
-                                 ui.radio_value(&mut config.backend, Backend::Auto, "Auto");
-                                 ui.radio_value(&mut config.backend, Backend::Vulkan, "Vulkan");
-                             });
-                             
-                             ui.add_space(40.0);
-                             
-                             ui.vertical(|ui| {
-                                 ui.label("Pool Shape:");
-                                 ui.radio_value(&mut config.pool_shape, PoolShape::Cube, "Cube");
-                                 ui.radio_value(&mut config.pool_shape, PoolShape::Cuboid, "Cuboid");
-                                 ui.radio_value(&mut config.pool_shape, PoolShape::Frustum, "Frustum");
-                                 ui.radio_value(&mut config.pool_shape, PoolShape::Cylinder, "Cylinder");
-                             });
-                         });
-                         
-                         ui.add_space(20.0);
-                         ui.horizontal(|ui| {
-                             if ui.button("RESET").clicked() {
-                                 *config = RunConfig::default();
-                             }
-                             if ui.button("RUN").clicked() {
-                                 run_clicked = true;
-                             }
-                         });
+                        ui.add_space(24.0);
+                        ui.horizontal(|ui| {
+                            let available_width = ui.available_width();
+                            let button_width = 120.0;
+                            let spacing = 20.0;
+                            let total_width = button_width * 2.0 + spacing;
+                            let x_offset = (available_width - total_width).max(0.0) / 2.0;
+                            ui.add_space(x_offset);
+                            
+                            if ui.add_sized([button_width, 40.0], egui::Button::new("RESET")).clicked() {
+                                *config = RunConfig::default();
+                            }
+                            ui.add_space(spacing);
+                            if ui.add_sized([button_width, 40.0], egui::Button::new("RUN")).clicked() {
+                                run_clicked = true;
+                            }
+                        });
+                        ui.add_space(10.0);
                     });
             });
             
@@ -424,7 +456,7 @@ impl Application {
                         PoolShape::Cube => "Cube",
                         PoolShape::Cuboid => "Cuboid",
                         PoolShape::Frustum => "Frustum",
-                        PoolShape::Cylinder => "Cylinder",
+                        PoolShape::Tube => "Tube",
                     };
                     gfx.renderer.update_pool_mesh(&gfx.device, pool_shape_name);
                     
@@ -483,7 +515,7 @@ impl Application {
         let pool_shape_idx = match self.run_config.pool_shape {
             PoolShape::Cube | PoolShape::Cuboid => 0,
             PoolShape::Frustum => 1,
-            PoolShape::Cylinder => 2,
+            PoolShape::Tube => 2,
         };
 
         gfx.renderer.update_uniforms(
