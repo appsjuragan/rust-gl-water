@@ -44,11 +44,20 @@ struct GfxState {
 }
 
 impl GfxState {
-    async fn new(window: Arc<Window>) -> Self {
+    async fn new(window: Arc<Window>, backend: Backend) -> Self {
         let size = window.inner_size();
 
+        // Convert Backend enum to wgpu::Backends
+        let backends = match backend {
+            Backend::Auto => wgpu::Backends::PRIMARY,
+            Backend::Vulkan => wgpu::Backends::VULKAN,
+            Backend::OpenGL => wgpu::Backends::GL,
+            // Note: wgpu doesn't have separate DX11, both map to DX12
+            Backend::Dx11 | Backend::Dx12 => wgpu::Backends::DX12,
+        };
+
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends,
             ..Default::default()
         });
 
@@ -607,7 +616,8 @@ impl ApplicationHandler for Application {
 
         let window = Arc::new(event_loop.create_window(window_attrs).expect("Failed to create window"));
         
-        let gfx = pollster::block_on(GfxState::new(window.clone()));
+        let backend = self.run_config.backend;
+        let gfx = pollster::block_on(GfxState::new(window.clone(), backend));
         
         self.window = Some(window.clone());
         self.gfx = Some(gfx);
