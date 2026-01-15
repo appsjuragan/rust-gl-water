@@ -47,7 +47,7 @@ impl Default for CommonUniforms {
             sphere_radius: 0.25,
             time: 0.0,
             shape_type: 0,
-            texture_type: 0,
+            texture_type: 1,
             object_count: 5,
             pool_shape: 0,
             _padding: [0.0; 2],
@@ -465,7 +465,7 @@ impl Renderer {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: Some(wgpu::Face::Front),
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -572,7 +572,7 @@ impl Renderer {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -860,7 +860,7 @@ impl Renderer {
             PoolVertex { position: [-bot, -1.0,  bot], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
         ];
         vertices.extend_from_slice(&bottom_verts);
-        indices.extend_from_slice(&[0, 3, 2, 0, 2, 1]);
+        indices.extend_from_slice(&[0, 2, 3, 0, 1, 2]);
         
         // Four trapezoidal walls
         let wall_data = [
@@ -1003,7 +1003,7 @@ impl Renderer {
             PoolVertex { position: [-1.0, -1.0,  1.0], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
         ];
         vertices.extend_from_slice(&bottom_verts);
-        indices.extend_from_slice(&[0, 3, 2, 0, 2, 1]); // CCW from inside
+        indices.extend_from_slice(&[0, 2, 3, 0, 1, 2]); // CW to be visible with Front culling
         
         // Four walls (normals pointing inward)
         let wall_data = [
