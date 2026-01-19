@@ -273,8 +273,8 @@ impl Application {
         });
 
         // Step simulation - with fixed DT we only need a small fixed number
-        // Using 4 steps per fixed update (at 60Hz) for the classic wave look
-        for _ in 0..4 {
+        // Using 6 steps per fixed update - balanced for speed and performance
+        for _ in 0..6 {
             gfx.water.step_simulation(&gfx.device, &gfx.queue, &mut encoder);
         }
         gfx.water.update_normals(&gfx.device, &gfx.queue, &mut encoder);

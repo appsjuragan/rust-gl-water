@@ -51,12 +51,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Weights: 0.2 for direct neighbors, 0.05 for diagonals
     let laplacian = (u_r + u_l + u_u + u_d) * 0.2 + (u_ur + u_ul + u_dr + u_dl) * 0.05 - u;
     
-    // Wave equation update with slight numerical damping
+    // Wave equation update - balanced for stability and speed
     // info.g is velocity, info.r is height
-    info.g += laplacian * 1.8; // Stiffness
-    info.g *= 0.992;           // Velocity damping
+    info.g += laplacian * 2.0; // Stiffness (stable increase)
+    info.g *= 0.99;            // Velocity damping
     info.r += info.g;
-    info.r *= 0.998;           // Height damping (helps stability)
+    info.r *= 0.99;            // Height damping (fast but stable equilibrium)
     
     return info;
 }
