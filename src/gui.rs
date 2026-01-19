@@ -5,64 +5,18 @@ use wgpu::{Device, Queue, TextureFormat};
 use winit::{event::WindowEvent, window::Window};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Shape {
-    Sphere,
-    Torus,
-    Tetrahedron,
-    Cube,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Texture {
-    Glass,
-    Wood,
-    Steel,
-    Ice,
-}
-
-impl Texture {
-    /// Returns material density relative to water (water = 1.0)
-    /// Glass: 2.5 (sinks)
-    /// Wood: 0.6 (floats ~40% above water)
-    /// Steel: 7.8 (sinks fast)
-    /// Ice: 0.92 (floats ~8% above water)
-    pub fn density(&self) -> f32 {
-        match self {
-            Texture::Glass => 2.5,
-            Texture::Wood => 0.6,
-            Texture::Steel => 7.8,
-            Texture::Ice => 0.92,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Backend {
-    Auto,
-    Vulkan,
-    OpenGL,
-    Dx11,
-    Dx12,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum PoolShape {
-    Tube,       // Renamed from Cylinder
-    Cube,
-    Cuboid,
-    Frustum,
-}
+use crate::core::enums::{ShapeType, TextureType, PoolShapeType, Backend};
+use crate::core::constants::{DEFAULT_OBJECT_COUNT, DEFAULT_LIGHT_COLOR};
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub gravity: f32,
-    pub shape: Shape,
-    pub texture: Texture,
+    pub shape: ShapeType,
+    pub texture: TextureType,
     pub light_color: [u8; 3],
     pub object_count: usize,
     pub backend: Backend,
-    pub pool_shape: PoolShape,
+    pub pool_shape: PoolShapeType,
     pub light_intensity: f32,
     pub enable_gi: bool,
     pub enable_raytracing: bool,
@@ -72,12 +26,12 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             gravity: 1.0,
-            shape: Shape::Sphere,
-            texture: Texture::Wood, // Matching UI image
+            shape: ShapeType::Sphere,
+            texture: TextureType::Wood,
             light_color: [255, 255, 255],
-            object_count: 5, // Matching UI image
+            object_count: DEFAULT_OBJECT_COUNT,
             backend: Backend::Auto,
-            pool_shape: PoolShape::Cube, // Matching UI image
+            pool_shape: PoolShapeType::Cube,
             light_intensity: 1.0,
             enable_gi: true,
             enable_raytracing: true,

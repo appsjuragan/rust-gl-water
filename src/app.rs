@@ -19,7 +19,12 @@ use crate::renderer::Renderer;
 use crate::water::Water;
 
 use crate::ui::UiRenderer;
-use crate::gui::{Gui, AppConfig as RunConfig, Shape, Texture, Backend, PoolShape};
+use crate::gui::{Gui, AppConfig as RunConfig};
+use crate::core::enums::{Backend, PoolShapeType, ShapeType, TextureType};
+use crate::core::constants::{
+    DEFAULT_GRAVITY, PHYSICS_TIMESTEP, POOL_SIZE_DEFAULT, POOL_SIZE_CUBOID_WIDTH,
+    POOL_SIZE_CUBOID_LENGTH, WINDOW_TITLE,
+};
 
 #[derive(PartialEq)]
 enum AppState {
@@ -186,7 +191,6 @@ impl Application {
         }
 
         // Fixed timestep for physics and water simulation
-        const FIXED_DT: f32 = 1.0 / 60.0;
         self.physics_accumulator += dt;
 
         // Limit accumulator to prevent "spiral of death"
@@ -194,9 +198,9 @@ impl Application {
             self.physics_accumulator = 0.25;
         }
 
-        while self.physics_accumulator >= FIXED_DT {
-            self.step_physics(FIXED_DT);
-            self.physics_accumulator -= FIXED_DT;
+        while self.physics_accumulator >= PHYSICS_TIMESTEP {
+            self.step_physics(PHYSICS_TIMESTEP);
+            self.physics_accumulator -= PHYSICS_TIMESTEP;
         }
     }
 
@@ -281,10 +285,10 @@ impl Application {
 
         // Sphere water interaction
         let shape_type = match self.run_config.shape {
-            Shape::Sphere => 0,
-            Shape::Torus => 1,
-            Shape::Tetrahedron => 2,
-            Shape::Cube => 3,
+            ShapeType::Sphere => 0,
+            ShapeType::Torus => 1,
+            ShapeType::Tetrahedron => 2,
+            ShapeType::Cube => 3,
         };
 
         gfx.water.move_objects(
@@ -342,26 +346,26 @@ impl Application {
                         ui.columns(3, |columns| {
                             columns[0].vertical(|ui| {
                                 ui.label("Object Shape:");
-                                ui.radio_value(&mut config.shape, Shape::Sphere, "Sphere");
-                                ui.radio_value(&mut config.shape, Shape::Torus, "Torus");
-                                ui.radio_value(&mut config.shape, Shape::Tetrahedron, "Tetrahedron");
-                                ui.radio_value(&mut config.shape, Shape::Cube, "Cube");
+                                ui.radio_value(&mut config.shape, ShapeType::Sphere, "Sphere");
+                                ui.radio_value(&mut config.shape, ShapeType::Torus, "Torus");
+                                ui.radio_value(&mut config.shape, ShapeType::Tetrahedron, "Tetrahedron");
+                                ui.radio_value(&mut config.shape, ShapeType::Cube, "Cube");
                             });
                              
                             columns[1].vertical(|ui| {
                                 ui.label("Textures:");
-                                ui.radio_value(&mut config.texture, Texture::Glass, "Glass");
-                                ui.radio_value(&mut config.texture, Texture::Wood, "Wood");
-                                ui.radio_value(&mut config.texture, Texture::Steel, "Steel");
-                                ui.radio_value(&mut config.texture, Texture::Ice, "Ice");
+                                ui.radio_value(&mut config.texture, TextureType::Glass, "Glass");
+                                ui.radio_value(&mut config.texture, TextureType::Wood, "Wood");
+                                ui.radio_value(&mut config.texture, TextureType::Steel, "Steel");
+                                ui.radio_value(&mut config.texture, TextureType::Ice, "Ice");
                             });
                              
                             columns[2].vertical(|ui| {
                                 ui.label("Pool Shape:");
-                                ui.radio_value(&mut config.pool_shape, PoolShape::Tube, "Tube");
-                                ui.radio_value(&mut config.pool_shape, PoolShape::Cube, "Cube");
-                                ui.radio_value(&mut config.pool_shape, PoolShape::Cuboid, "Cuboid");
-                                ui.radio_value(&mut config.pool_shape, PoolShape::Frustum, "Frustum");
+                                ui.radio_value(&mut config.pool_shape, PoolShapeType::Tube, "Tube");
+                                ui.radio_value(&mut config.pool_shape, PoolShapeType::Cube, "Cube");
+                                ui.radio_value(&mut config.pool_shape, PoolShapeType::Cuboid, "Cuboid");
+                                ui.radio_value(&mut config.pool_shape, PoolShapeType::Frustum, "Frustum");
                             });
                         });
                          
@@ -445,15 +449,15 @@ impl Application {
                 
                 {
                     let config = &self.run_config;
-                    self.physics.gravity = Vec3::new(0.0, -9.81 * config.gravity, 0.0);
+                    self.physics.gravity = Vec3::new(0.0, -DEFAULT_GRAVITY * config.gravity, 0.0);
                     self.physics.pool_shape = config.pool_shape;
                     
                     // Set material density based on texture
                     self.physics.material_density = config.texture.density();
                     
                     let (width, length) = match config.pool_shape {
-                        PoolShape::Cuboid => (2.0, 3.0),
-                        _ => (2.0, 2.0),
+                        PoolShapeType::Cuboid => (POOL_SIZE_CUBOID_WIDTH, POOL_SIZE_CUBOID_LENGTH),
+                        _ => (POOL_SIZE_DEFAULT, POOL_SIZE_DEFAULT),
                     };
                     
                     self.physics.pool_width = width;
@@ -467,19 +471,19 @@ impl Application {
                     self.physics.reset_objects(config.object_count);
                     
                     let shape_name = match config.shape {
-                        Shape::Sphere => "Sphere",
-                        Shape::Torus => "Torus",
-                        Shape::Tetrahedron => "Tetrahedron",
-                        Shape::Cube => "Cube",
+                        ShapeType::Sphere => "Sphere",
+                        ShapeType::Torus => "Torus",
+                        ShapeType::Tetrahedron => "Tetrahedron",
+                        ShapeType::Cube => "Cube",
                     };
                     gfx.renderer.update_object_mesh(&gfx.device, shape_name);
                     self.physics.set_shape(shape_name);
                     
                     let pool_shape_name = match config.pool_shape {
-                        PoolShape::Cube => "Cube",
-                        PoolShape::Cuboid => "Cuboid",
-                        PoolShape::Frustum => "Frustum",
-                        PoolShape::Tube => "Tube",
+                        PoolShapeType::Cube => "Cube",
+                        PoolShapeType::Cuboid => "Cuboid",
+                        PoolShapeType::Frustum => "Frustum",
+                        PoolShapeType::Tube => "Tube",
                     };
                     gfx.renderer.update_pool_mesh(&gfx.device, pool_shape_name);
                     
@@ -519,26 +523,26 @@ impl Application {
 
         // Update uniforms
         let shape_type = match self.run_config.shape {
-            Shape::Sphere => 0,
-            Shape::Torus => 1,
-            Shape::Tetrahedron => 2,
-            Shape::Cube => 3,
+            ShapeType::Sphere => 0,
+            ShapeType::Torus => 1,
+            ShapeType::Tetrahedron => 2,
+            ShapeType::Cube => 3,
         };
         
         let texture_type = match self.run_config.texture {
-            Texture::Glass => 0,
-            Texture::Wood => 1,
-            Texture::Steel => 2,
-            Texture::Ice => 3,
+            TextureType::Glass => 0,
+            TextureType::Wood => 1,
+            TextureType::Steel => 2,
+            TextureType::Ice => 3,
         };
 
         let lc = self.run_config.light_color;
         let intensity = self.run_config.light_intensity;
         
         let pool_shape_idx = match self.run_config.pool_shape {
-            PoolShape::Cube | PoolShape::Cuboid => 0,
-            PoolShape::Frustum => 1,
-            PoolShape::Tube => 2,
+            PoolShapeType::Cube | PoolShapeType::Cuboid => 0,
+            PoolShapeType::Frustum => 1,
+            PoolShapeType::Tube => 2,
         };
 
         gfx.renderer.update_uniforms(
@@ -631,7 +635,7 @@ impl ApplicationHandler for Application {
         }
 
         let window_attrs = Window::default_attributes()
-            .with_title("Rust GL Water - Poolcore Demo")
+            .with_title(WINDOW_TITLE)
             .with_inner_size(PhysicalSize::new(600, 600));
 
         let window = Arc::new(event_loop.create_window(window_attrs).expect("Failed to create window"));

@@ -3,9 +3,7 @@
 use wgpu::util::DeviceExt;
 
 use crate::shaders::water_sim::{DROP_SHADER, NORMAL_SHADER, UPDATE_SHADER, sphere_volume_shader};
-
-/// Resolution of the water simulation texture
-pub const WATER_TEXTURE_SIZE: u32 = 512;
+use crate::core::constants::{WATER_TEXTURE_SIZE, POOL_SIZE_DEFAULT};
 
 /// Water simulation using GPU ping-pong rendering
 pub struct Water {
@@ -124,8 +122,8 @@ impl Water {
         });
 
         // Create uniform buffers
-        let pool_width = 2.0f32;
-        let pool_length = 2.0f32;
+        let pool_width = POOL_SIZE_DEFAULT;
+        let pool_length = POOL_SIZE_DEFAULT;
 
         let drop_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Drop Uniforms"),
@@ -511,13 +509,13 @@ impl Water {
         let count = objects.len().min(64);
         for i in 0..count {
             let obj = &objects[i];
-            let displacement = (obj.center - obj.old_center).length();
+            let displacement = (obj.position - obj.old_position).length();
             let speed_boost = 1.0 + displacement * 50.0;
             let dynamic_strength = impact_strength * speed_boost;
 
             object_transitions[i] = ObjectTransition {
-                old_center: [obj.old_center.x / scale_x, obj.old_center.y, obj.old_center.z / scale_z, 0.0],
-                new_center: [obj.center.x / scale_x, obj.center.y, obj.center.z / scale_z, 0.0],
+                old_center: [obj.old_position.x / scale_x, obj.old_position.y, obj.old_position.z / scale_z, 0.0],
+                new_center: [obj.position.x / scale_x, obj.position.y, obj.position.z / scale_z, 0.0],
                 rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z, obj.rotation.w],
                 strength: dynamic_strength,
                 _padding: [0.0; 3],

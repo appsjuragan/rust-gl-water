@@ -2,7 +2,7 @@
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use crate::physics::ObjectState;
-use crate::gui::PoolShape;
+use crate::core::enums::PoolShapeType;
 
 /// Interaction modes
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -72,7 +72,7 @@ impl InputManager {
         pool_length: f32,
         pool_height: f32,
         wall_height: f32,
-        pool_shape: &PoolShape,
+        pool_shape: &PoolShapeType,
     ) -> Option<usize> {
         self.mouse_pressed = true;
         self.mouse_pos = Vec2::new(x, y);
@@ -86,7 +86,7 @@ impl InputManager {
         let mut best_dist = f32::MAX;
         
         for (i, obj) in objects.iter().enumerate() {
-            if let Some(hit) = self.ray_sphere_intersection(ray.0, ray.1, obj.center, sphere_radius) {
+            if let Some(hit) = self.ray_sphere_intersection(ray.0, ray.1, obj.position, sphere_radius) {
                 let dist = (hit - ray.0).length_squared();
                 if dist < best_dist {
                     best_dist = dist;
@@ -108,15 +108,15 @@ impl InputManager {
             let half_l = pool_length / 2.0;
             
             let is_hit = match pool_shape {
-                PoolShape::Cube | PoolShape::Cuboid => {
+                PoolShapeType::Cube | PoolShapeType::Cuboid => {
                     point.x.abs() < half_w && point.z.abs() < half_l
                 },
-                PoolShape::Tube => {
+                PoolShapeType::Tube => {
                     // Check radius (using width as diameter)
                     let radius = half_w;
                     point.x * point.x + point.z * point.z < radius * radius
                 },
-                PoolShape::Frustum => {
+                PoolShapeType::Frustum => {
                     // Calculate scale at y=0 (water level)
                     // Bottom (-pool_height) scale is 0.7
                     // Top (wall_height) scale is 1.0

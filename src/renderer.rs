@@ -1,6 +1,5 @@
 //! Renderer module - handles scene rendering with water, caustics, and pool
 
-
 use glam::Vec3;
 use wgpu::util::DeviceExt;
 use crate::physics::ObjectState;
@@ -8,11 +7,11 @@ use crate::physics::ObjectState;
 use crate::camera::{Camera, CameraUniform};
 use crate::shaders::{caustics::caustics_shader, pool::pool_shader, water_render::water_shader, sphere::sphere_shader};
 use crate::water::Water;
-
-/// Resolution for caustics texture
-pub const CAUSTICS_TEXTURE_SIZE: u32 = 512;
-
-use crate::core::shape::Shape; // Import Shape trait for generate_mesh
+use crate::core::shape::Shape;
+use crate::core::constants::{
+    CAUSTICS_TEXTURE_SIZE, POOL_DEPTH, WALL_HEIGHT, DEFAULT_OBJECT_RADIUS,
+    DEFAULT_OBJECT_COUNT, POOL_SIZE_DEFAULT, DEFAULT_LIGHT_DIR, DEFAULT_LIGHT_COLOR,
+};
 
 
 /// Common uniforms shared across shaders
@@ -36,20 +35,22 @@ pub struct CommonUniforms {
 
 impl Default for CommonUniforms {
     fn default() -> Self {
+        // Normalize default light direction
+        let light_dir_raw = Vec3::new(DEFAULT_LIGHT_DIR[0], DEFAULT_LIGHT_DIR[1], DEFAULT_LIGHT_DIR[2]).normalize();
         Self {
-            pool_height: 1.0,
-            wall_height: 0.4,
-            pool_size: [1.0, 1.0],
-            light_dir: [-0.577, 0.577, 0.577, 0.0],
-            sphere_radius: 0.25,
+            pool_height: POOL_DEPTH,
+            wall_height: WALL_HEIGHT,
+            pool_size: [POOL_SIZE_DEFAULT / 2.0, POOL_SIZE_DEFAULT / 2.0],
+            light_dir: [light_dir_raw.x, light_dir_raw.y, light_dir_raw.z, 0.0],
+            sphere_radius: DEFAULT_OBJECT_RADIUS,
             time: 0.0,
             shape_type: 0,
             texture_type: 1,
-            object_count: 5,
+            object_count: DEFAULT_OBJECT_COUNT as i32,
             pool_shape: 0,
             enable_gi: 1,
             enable_raytracing: 1,
-            light_color: [1.0, 1.0, 1.0, 1.0],
+            light_color: [DEFAULT_LIGHT_COLOR[0], DEFAULT_LIGHT_COLOR[1], DEFAULT_LIGHT_COLOR[2], 1.0],
         }
     }
 }
@@ -745,11 +746,11 @@ impl Renderer {
             sphere_centers_buffer,
             sphere_rotations_buffer,
             light_dir,
-            pool_width: 2.0,
-            pool_length: 2.0,
-            pool_height: 1.0,
-            wall_height: 0.4,
-            sphere_radius: 0.25,
+            pool_width: POOL_SIZE_DEFAULT,
+            pool_length: POOL_SIZE_DEFAULT,
+            pool_height: POOL_DEPTH,
+            wall_height: WALL_HEIGHT,
+            sphere_radius: DEFAULT_OBJECT_RADIUS,
         }
     }
 
@@ -1137,7 +1138,7 @@ impl Renderer {
         let mut rotations = [[0.0f32; 4]; 64];
         let count = objects.len().min(64);
         for i in 0..count {
-            centers[i] = [objects[i].center.x, objects[i].center.y, objects[i].center.z, 0.0];
+            centers[i] = [objects[i].position.x, objects[i].position.y, objects[i].position.z, 0.0];
             rotations[i] = [objects[i].rotation.x, objects[i].rotation.y, objects[i].rotation.z, objects[i].rotation.w];
         }
 

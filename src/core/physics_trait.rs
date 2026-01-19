@@ -2,29 +2,12 @@
 
 #![allow(dead_code)]
 
-use glam::{Quat, Vec3};
+use glam::Vec3;
 use crate::core::shape::{Shape, ShapeParams};
 
-#[derive(Clone, Copy, Debug)]
-pub struct PhysicsState {
-    pub position: Vec3,
-    pub velocity: Vec3,
-    pub rotation: Quat,
-    pub angular_velocity: Vec3,
-    pub mass: f32,
-}
+use crate::core::state::RigidBody;
 
-impl Default for PhysicsState {
-    fn default() -> Self {
-        Self {
-            position: Vec3::ZERO,
-            velocity: Vec3::ZERO,
-            rotation: Quat::IDENTITY,
-            angular_velocity: Vec3::ZERO,
-            mass: 1.0,
-        }
-    }
-}
+pub type PhysicsState = RigidBody;
 
 #[derive(Clone, Debug)]
 pub struct CollisionInfo {
