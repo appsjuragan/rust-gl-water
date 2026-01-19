@@ -9,3 +9,4 @@ Cargo.lock
 .DS_Store
 .gemini
 build_log*
+*log*txt
