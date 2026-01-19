@@ -1,13 +1,18 @@
 //! Physics module - handles buoyancy and collision physics for floating objects
 
-use glam::Vec3;
+use glam::{Vec3, Quat};
 use crate::gui::PoolShape;
+use std::sync::Arc;
+use crate::core::shape::{Shape, ShapeParams};
+use crate::core::physics_trait::PhysicsState;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ObjectState {
     pub center: Vec3,
     pub old_center: Vec3,
     pub velocity: Vec3,
+    pub rotation: Quat,
+    pub angular_velocity: Vec3,
 }
 
 impl Default for ObjectState {
@@ -16,61 +21,97 @@ impl Default for ObjectState {
             center: Vec3::ZERO,
             old_center: Vec3::ZERO,
             velocity: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
+            angular_velocity: Vec3::ZERO,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RippleEvent {
+    pub x: f32,
+    pub z: f32,
+    pub strength: f32,
+    pub radius: f32,
 }
 
 /// Physics engine for floating simulation
 pub struct PhysicsEngine {
     pub objects: Vec<ObjectState>,
     
-    /// Gravity vector
     pub gravity: Vec3,
-    /// Sphere radius
     pub radius: f32,
     
-    // Pool dimensions
     pub pool_width: f32,
     pub pool_length: f32,
     pub pool_depth: f32,
+    pub wall_height: f32,
     pub pool_shape: PoolShape,
     
-    // Physics parameters
-    pub float_ratio: f32,
+
     pub impact_strength: f32,
     pub enabled: bool,
     pub gravity_enabled: bool,
     pub mouse_repulsion_enabled: bool,
+    
+    pub seed: u32,
+
+    pub current_shape: Arc<dyn Shape>,
+    
+    /// Material density relative to water (1.0 = water)
+    /// < 1.0: floats, > 1.0: sinks
+    pub material_density: f32,
+    
+    /// Queue of ripple events to be rendered
+    pub ripples: Vec<RippleEvent>,
 }
 
 impl Default for PhysicsEngine {
     fn default() -> Self {
-        // Initialize with one default object
         let mut objects = Vec::new();
         objects.push(ObjectState {
             center: Vec3::new(0.0, 2.0, 0.0),
             old_center: Vec3::new(0.0, 2.0, 0.0),
             velocity: Vec3::ZERO,
+            rotation: Quat::IDENTITY,
+            angular_velocity: Vec3::ZERO,
         });
 
         Self {
             objects,
-            gravity: Vec3::new(0.0, -9.81, 0.0), // Use Earth gravity
+            gravity: Vec3::new(0.0, -9.81, 0.0),
             radius: 0.25,
             pool_width: 2.0,
             pool_length: 2.0,
-            pool_depth: 0.0,
+            pool_depth: 1.0,
+            wall_height: 0.4,
             pool_shape: PoolShape::Cube,
-            float_ratio: 0.5, // 50% submerged
+
             impact_strength: 0.04,
             enabled: true,
             gravity_enabled: true,
             mouse_repulsion_enabled: true,
+            seed: 12345,
+            current_shape: Arc::new(crate::shapes::Sphere::new()),
+            material_density: 0.6, // Wood by default
+            ripples: Vec::new(),
         }
     }
 }
 
 impl PhysicsEngine {
+    pub fn set_shape(&mut self, shape_name: &str) {
+        let registry = crate::shapes::create_default_registry();
+        if let Some(shape) = registry.get(shape_name) {
+            self.current_shape = shape;
+        }
+    }
+
+    fn random_f32_static(seed: &mut u32) -> f32 {
+        *seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        (*seed as f32) / (u32::MAX as f32)
+    }
+
     /// Update physics simulation for all objects
     pub fn update(
         &mut self,
@@ -84,44 +125,70 @@ impl PhysicsEngine {
             return;
         }
         
-        // 1. Update individual objects
+        // Extract fields to avoid borrowing self in loop
+        let gravity = self.gravity;
+        let radius = self.radius;
+        let pool_width = self.pool_width;
+        let pool_length = self.pool_length;
+        let pool_depth = self.pool_depth;
+        let pool_shape = self.pool_shape;
+        // float_ratio replaced by material_density
+        let enabled = self.enabled;
+        let gravity_enabled = self.gravity_enabled;
+        let mouse_repulsion_enabled = self.mouse_repulsion_enabled;
+        let seed = &mut self.seed;
+        
+        let material_density = self.material_density;
+        
+        self.ripples.clear();
+        
         for (i, obj) in self.objects.iter_mut().enumerate() {
-            // Store old position
             obj.old_center = obj.center;
             
-            // If this object is being dragged, skip physics integration
             if Some(i) == dragged_object_index {
                 obj.velocity = Vec3::ZERO;
+                obj.angular_velocity = Vec3::ZERO;
                 continue;
-            } else if !self.enabled {
+            } else if !enabled {
                 continue;
             }
 
-            // 1. Calculate forces
             let mut force = Vec3::ZERO;
 
-            // Gravity
-            if self.gravity_enabled {
-                force += self.gravity;
+            if gravity_enabled {
+                force += gravity * material_density;
             }
 
-            // Buoyancy
-            // percent_underwater = 0 at y = center + radius, 1 at y = center - radius
-            let submerged_depth = (water_height + self.radius - obj.center.y).max(0.0);
-            let percent_underwater = (submerged_depth / (2.0 * self.radius)).min(1.0);
+            // Buoyancy based on material density
+            // At equilibrium: submerged_fraction = material_density (when density < 1.0)
+            // If density > 1.0, object sinks (buoyancy < weight)
+            let submerged_depth = (water_height + radius - obj.center.y).max(0.0);
+            let percent_underwater = (submerged_depth / (2.0 * radius)).min(1.0);
             
-            // Equilibrium at float_ratio: Gravity + Buoyancy = 0
-            // Buoyancy = -gravity * (percent / float_ratio)
             if percent_underwater > 0.0 {
-                let buoyancy_force = -self.gravity * (percent_underwater / self.float_ratio);
+                // Buoyancy = water_density * g * submerged_volume
+                // Weight = material_density * g * total_volume
+                // Net force = (buoyancy - weight) = g * (submerged_fraction - material_density)
+                let buoyancy_force = -gravity * percent_underwater;
                 force += buoyancy_force;
                 
-                // Add vertical damping (viscosity)
-                force -= obj.velocity * (percent_underwater * 2.0);
+                // Damping increases with submersion
+                let damping = if material_density > 1.0 { 4.0 } else { 2.0 };
+                force -= obj.velocity * (percent_underwater * damping);
+                
+                let rx = (Self::random_f32_static(seed) - 0.5) * 2.0;
+                let ry = (Self::random_f32_static(seed) - 0.5) * 2.0;
+                let rz = (Self::random_f32_static(seed) - 0.5) * 2.0;
+                
+                // Only apply random torque to floating objects
+                if material_density <= 1.0 {
+                    let random_torque = Vec3::new(rx, ry, rz).normalize_or_zero() * 1.0 * percent_underwater;
+                    obj.angular_velocity += random_torque * dt;
+                }
             }
 
             // Mouse repulsion (horizontal) - can be toggled with 'L' key
-            if self.mouse_repulsion_enabled {
+            if mouse_repulsion_enabled {
                 if let Some(mouse) = mouse_point {
                     let mut dist_vec = obj.center - mouse;
                     dist_vec.y = 0.0;
@@ -144,130 +211,335 @@ impl PhysicsEngine {
                 let drag_coeff = 0.5 + percent_underwater * 2.0;
                 let drag_force = -obj.velocity.normalize() * (speed * speed * drag_coeff);
                 force += drag_force;
+                
+                // Induce rolling from movement (drag acts on surface, not center)
+                // Torque = r x F
+                // Assume drag acts on bottom if floating, or opposite to velocity
+                // Simplified: Roll axis is cross product of Up and Velocity
+                let roll_axis = Vec3::Y.cross(obj.velocity).normalize_or_zero();
+                let roll_mult = if material_density > 1.0 { 0.2 } else { 1.0 };
+                obj.angular_velocity += roll_axis * speed * roll_mult * dt;
             }
             
             // 2. Integrate (Semi-Implicit Euler)
             obj.velocity += force * dt;
             obj.center += obj.velocity * dt;
 
+            // Ripple Generation
+            // 1. Impact Splash
+            let was_submerged = (obj.old_center.y - radius) < water_height;
+            let is_submerged = (obj.center.y - radius) < water_height;
+            
+            if !was_submerged && is_submerged && obj.velocity.y < -0.1 {
+                 self.ripples.push(RippleEvent {
+                     x: obj.center.x,
+                     z: obj.center.z,
+                     strength: -0.05 * obj.velocity.y.abs().min(5.0),
+                     radius: radius * 1.5,
+                 });
+            }
+
+            // 2. Sinking Ripples (for dense objects)
+            if material_density > 1.0 && percent_underwater > 0.0 && percent_underwater < 0.9 {
+                 if Self::random_f32_static(seed) < 0.08 {
+                     self.ripples.push(RippleEvent {
+                         x: obj.center.x + (Self::random_f32_static(seed) - 0.5) * radius * 0.5,
+                         z: obj.center.z + (Self::random_f32_static(seed) - 0.5) * radius * 0.5,
+                         strength: -0.015,
+                         radius: radius * 0.4,
+                     });
+                 }
+            }
+
             // Add some global damping to prevent infinite energy
             obj.velocity *= 0.995;
             
+            // Angular damping
+            obj.angular_velocity *= 0.98;
+            
+            // Integrate rotation
+            let angle = obj.angular_velocity.length();
+            if angle > 0.0001 {
+                let axis = obj.angular_velocity / angle;
+                let rot_delta = Quat::from_axis_angle(axis, angle * dt);
+                obj.rotation = (rot_delta * obj.rotation).normalize();
+            }
+            
             // Wall collisions
-            match self.pool_shape {
-                PoolShape::Cylinder => {
-                    let dist_sq = obj.center.x * obj.center.x + obj.center.z * obj.center.z;
-                    let max_dist = self.pool_width / 2.0 - self.radius;
-                    
-                    if dist_sq > max_dist * max_dist {
-                        let dist = dist_sq.sqrt();
-                        if dist > 0.0001 {
-                            let normal = Vec3::new(obj.center.x, 0.0, obj.center.z) / dist;
-                            obj.center.x = normal.x * max_dist;
-                            obj.center.z = normal.z * max_dist;
-                            
-                            // Reflect velocity
-                            let v_dot_n = obj.velocity.dot(normal);
-                            if v_dot_n > 0.0 {
-                                obj.velocity -= normal * (v_dot_n * 1.5); // Bounce
-                            }
-                        }
-                    }
+            let collider = self.current_shape.as_ref().collider();
+            let shape_params = ShapeParams {
+                radius: self.radius,
+                rotation: obj.rotation,
+                scale: Vec3::splat(self.radius), // Apply radius as scale
+            };
+
+            // Create PhysicsState adapter
+            let mut state = PhysicsState {
+                position: obj.center,
+                velocity: obj.velocity,
+                rotation: obj.rotation,
+                angular_velocity: obj.angular_velocity,
+                mass: 1.0, // Default mass
+            };
+
+            match pool_shape {
+                PoolShape::Tube => {
+                    collider.collide_with_cylinder(
+                        &mut state,
+                        pool_width / 2.0,
+                        self.current_shape.as_ref(),
+                        &shape_params,
+                    );
                 },
                 PoolShape::Frustum => {
-                    // Approximate frustum collision
-                    // Interpolate width based on height
-                    // Top (y=wall_height) scale 1.0, Bottom (y=-pool_depth) scale 0.7
-                    // Assume wall_height=0.4, pool_depth=1.0 (approx)
-                    let h_total = 1.4;
-                    let y_rel = obj.center.y + 1.0; // relative to bottom
-                    let t = (y_rel / h_total).clamp(0.0, 1.0);
-                    let scale = 0.7 + (1.0 - 0.7) * t;
-                    
-                    let half_width = (self.pool_width / 2.0) * scale;
-                    let half_length = (self.pool_length / 2.0) * scale;
-                    
-                    Self::collide_box(obj, half_width, half_length, self.radius);
+                    // Assuming top scale 1.0, bottom 0.7
+                    collider.collide_with_frustum(
+                        &mut state,
+                        1.0,
+                        0.7,
+                        -pool_depth,
+                        self.wall_height,
+                        self.current_shape.as_ref(),
+                        &shape_params,
+                    );
                 },
                 _ => {
-                    let half_width = self.pool_width / 2.0;
-                    let half_length = self.pool_length / 2.0;
-                    Self::collide_box(obj, half_width, half_length, self.radius);
+                    let half_width = pool_width / 2.0;
+                    let half_length = pool_length / 2.0;
+                    collider.collide_with_box(
+                        &mut state,
+                        half_width,
+                        half_length,
+                        self.current_shape.as_ref(),
+                        &shape_params,
+                    );
                 }
             }
             
-            // Floor collision
-            if obj.center.y < self.radius - self.pool_depth {
-                obj.center.y = self.radius - self.pool_depth;
-                obj.velocity.y = obj.velocity.y.abs() * 0.7;
-            }
+            // Sync back to ObjectState
+            obj.center = state.position;
+            obj.velocity = state.velocity;
+            obj.rotation = state.rotation;
+            obj.angular_velocity = state.angular_velocity;
+            
+            // Floor collision using shape-specific collider
+            let floor_y = -pool_depth;
+            let mut floor_state = PhysicsState {
+                position: obj.center,
+                velocity: obj.velocity,
+                rotation: obj.rotation,
+                angular_velocity: obj.angular_velocity,
+                mass: 1.0,
+            };
+            
+            collider.collide_with_floor(
+                &mut floor_state,
+                floor_y,
+                self.current_shape.as_ref(),
+                &shape_params,
+                dt,
+            );
+            
+            obj.center = floor_state.position;
+            obj.velocity = floor_state.velocity;
+            obj.rotation = floor_state.rotation;
+            obj.angular_velocity = floor_state.angular_velocity;
         }
 
         // 2. Solve Object-Object Collisions
         self.solve_object_collisions();
     }
+
     
-    fn collide_box(obj: &mut ObjectState, half_width: f32, half_length: f32, radius: f32) {
-        if obj.center.x < radius - half_width {
-            obj.center.x = radius - half_width;
-            obj.velocity.x = obj.velocity.x.abs() * 0.5;
-        } else if obj.center.x > half_width - radius {
-            obj.center.x = half_width - radius;
-            obj.velocity.x = -obj.velocity.x.abs() * 0.5;
-        }
-        
-        if obj.center.z < radius - half_length {
-            obj.center.z = radius - half_length;
-            obj.velocity.z = obj.velocity.z.abs() * 0.5;
-        } else if obj.center.z > half_length - radius {
-            obj.center.z = half_length - radius;
-            obj.velocity.z = -obj.velocity.z.abs() * 0.5;
-        }
-    }
-    
+
+    /// Iterative Position-Based Dynamics (PBD) solver for stable stacking
     fn solve_object_collisions(&mut self) {
         let count = self.objects.len();
         if count < 2 { return; }
         
-        // Simple distinct pair iteration
+        let collider = self.current_shape.as_ref().collider();
+        
+        // Store positions before solving for velocity derivation
+        let positions_before: Vec<Vec3> = self.objects.iter().map(|o| o.center).collect();
+        
+        // PBD: Multiple iterations for constraint convergence
+        const SOLVER_ITERATIONS: usize = 8;
+        const POSITION_SLOP: f32 = 0.001; // Allowed penetration
+        
+        for _iter in 0..SOLVER_ITERATIONS {
+            // Collect all collision pairs and their corrections first (Jacobi-style)
+            let mut corrections: Vec<(usize, Vec3)> = Vec::new();
+            
+            for i in 0..count {
+                for j in (i + 1)..count {
+                    let shape_params_a = ShapeParams {
+                        radius: self.radius,
+                        rotation: self.objects[i].rotation,
+                        scale: Vec3::splat(self.radius),
+                    };
+                    let shape_params_b = ShapeParams {
+                        radius: self.radius,
+                        rotation: self.objects[j].rotation,
+                        scale: Vec3::splat(self.radius),
+                    };
+
+                    let state_a = PhysicsState {
+                        position: self.objects[i].center,
+                        velocity: Vec3::ZERO, // Not used for position solving
+                        rotation: self.objects[i].rotation,
+                        angular_velocity: Vec3::ZERO,
+                        mass: 1.0,
+                    };
+                    
+                    let state_b = PhysicsState {
+                        position: self.objects[j].center,
+                        velocity: Vec3::ZERO,
+                        rotation: self.objects[j].rotation,
+                        angular_velocity: Vec3::ZERO,
+                        mass: 1.0,
+                    };
+
+                    if let Some(collision) = collider.check_object_collision(
+                        &state_a,
+                        &state_b,
+                        self.current_shape.as_ref(),
+                        self.current_shape.as_ref(),
+                        &shape_params_a,
+                        &shape_params_b,
+                    ) {
+                        let penetration = collision.penetration_depth;
+                        
+                        if penetration > POSITION_SLOP {
+                            let normal = collision.normal;
+                            // Baumgarte stabilization factor (0.1-0.3 typical)
+                            let baumgarte = 0.2;
+                            let correction_mag = (penetration - POSITION_SLOP) * baumgarte;
+                            let correction = normal * correction_mag;
+                            
+                            // Equal mass assumption: split 50/50
+                            corrections.push((i, -correction));
+                            corrections.push((j, correction));
+                        }
+                    }
+                }
+            }
+            
+            // Apply all corrections (Jacobi: use averaged corrections)
+            let mut accumulated: Vec<(Vec3, u32)> = vec![(Vec3::ZERO, 0); count];
+            for (idx, corr) in corrections {
+                accumulated[idx].0 += corr;
+                accumulated[idx].1 += 1;
+            }
+            for (i, (total_corr, num)) in accumulated.into_iter().enumerate() {
+                if num > 0 {
+                    self.objects[i].center += total_corr / num as f32;
+                }
+            }
+        }
+        
+        // After position solving: derive velocity from position change
+        // and apply proper impulse-based collision response
         for i in 0..count {
             for j in (i + 1)..count {
-                let p1 = self.objects[i].center;
-                let p2 = self.objects[j].center;
-                let diff = p1 - p2;
-                let dist_sq = diff.length_squared();
-                let min_dist = self.radius * 2.0; // Assume same radius
+                let shape_params_a = ShapeParams {
+                    radius: self.radius,
+                    rotation: self.objects[i].rotation,
+                    scale: Vec3::splat(self.radius),
+                };
+                let shape_params_b = ShapeParams {
+                    radius: self.radius,
+                    rotation: self.objects[j].rotation,
+                    scale: Vec3::splat(self.radius),
+                };
+
+                let state_a = PhysicsState {
+                    position: self.objects[i].center,
+                    velocity: self.objects[i].velocity,
+                    rotation: self.objects[i].rotation,
+                    angular_velocity: self.objects[i].angular_velocity,
+                    mass: 1.0,
+                };
                 
-                if dist_sq < min_dist * min_dist {
-                    let dist = dist_sq.sqrt();
-                    if dist < 0.0001 { continue; } // Avoid division by zero
-                    
-                    let overlap = min_dist - dist;
-                    let normal = diff / dist;
-                    
-                    // Separate objects
-                    let correction = normal * (overlap * 0.5);
-                    self.objects[i].center += correction;
-                    self.objects[j].center -= correction;
-                    
-                    // Exchange momentum (Elastic collision approximation)
-                    // v1' = v1 - dot(v1-v2, n) * n
-                    // v2' = v2 - dot(v2-v1, n) * n(but n is p1-p2, so for v2 use -n)
-                    
+                let state_b = PhysicsState {
+                    position: self.objects[j].center,
+                    velocity: self.objects[j].velocity,
+                    rotation: self.objects[j].rotation,
+                    angular_velocity: self.objects[j].angular_velocity,
+                    mass: 1.0,
+                };
+
+                if let Some(collision) = collider.check_object_collision(
+                    &state_a,
+                    &state_b,
+                    self.current_shape.as_ref(),
+                    self.current_shape.as_ref(),
+                    &shape_params_a,
+                    &shape_params_b,
+                ) {
+                    let normal = collision.normal;
                     let v1 = self.objects[i].velocity;
                     let v2 = self.objects[j].velocity;
-                    
                     let relative_vel = v1 - v2;
-                    let speed = relative_vel.dot(normal);
+                    let closing_speed = relative_vel.dot(normal);
                     
-                    if speed < 0.0 { // Closing in
-                        let impulse = normal * speed * 1.5; // 1.5 for bounce
-                        self.objects[i].velocity -= impulse * 0.5;
-                        self.objects[j].velocity += impulse * 0.5;
+                    // Only apply impulse if objects are approaching
+                    if closing_speed < -0.001 {
+                        // Restitution: 0.0 = perfectly inelastic, 1.0 = perfectly elastic
+                        // Use low restitution for stable stacking
+                        let restitution = 0.1;
+                        let impulse_mag = -(1.0 + restitution) * closing_speed * 0.5;
+                        let impulse = normal * impulse_mag;
+                        
+                        self.objects[i].velocity += impulse;
+                        self.objects[j].velocity -= impulse;
+                        
+                        // Friction
+                        let tangent_vel = relative_vel - normal * closing_speed;
+                        if tangent_vel.length_squared() > 1e-6 {
+                            let friction_coeff = 0.4;
+                            let max_friction = impulse_mag * friction_coeff;
+                            let friction_impulse = tangent_vel.normalize() * tangent_vel.length().min(max_friction);
+                            
+                            self.objects[i].velocity -= friction_impulse * 0.5;
+                            self.objects[j].velocity += friction_impulse * 0.5;
+                            
+                            // Rolling resistance
+                            let torque_axis = normal.cross(tangent_vel).normalize_or_zero();
+                            let torque = torque_axis * tangent_vel.length() * 0.3;
+                            self.objects[i].angular_velocity += torque;
+                            self.objects[j].angular_velocity -= torque;
+                        }
+                    } else {
+                        // Resting contact: apply strong damping
+                        let contact_damping = 0.92;
+                        // Only damp the component along the contact normal
+                        let v1_n = self.objects[i].velocity.dot(normal);
+                        let v2_n = self.objects[j].velocity.dot(normal);
+                        self.objects[i].velocity -= normal * v1_n * (1.0 - contact_damping);
+                        self.objects[j].velocity -= normal * v2_n * (1.0 - contact_damping);
+                        
+                        self.objects[i].angular_velocity *= 0.95;
+                        self.objects[j].angular_velocity *= 0.95;
                     }
                 }
             }
         }
+        
+        // Velocity threshold: objects moving very slowly should stop
+        const SLEEP_VELOCITY_THRESHOLD: f32 = 0.005;
+        const SLEEP_ANGULAR_THRESHOLD: f32 = 0.01;
+        
+        for obj in &mut self.objects {
+            if obj.velocity.length_squared() < SLEEP_VELOCITY_THRESHOLD * SLEEP_VELOCITY_THRESHOLD {
+                obj.velocity = Vec3::ZERO;
+            }
+            if obj.angular_velocity.length_squared() < SLEEP_ANGULAR_THRESHOLD * SLEEP_ANGULAR_THRESHOLD {
+                obj.angular_velocity = Vec3::ZERO;
+            }
+        }
+        
+        // Suppress unused variable warning
+        let _ = positions_before;
     }
     
     /// Move specific object by a delta
@@ -278,33 +550,56 @@ impl PhysicsEngine {
         obj.center += delta;
         
         // Clamp to pool bounds
+        // Clamp to pool bounds
+        let collider = self.current_shape.as_ref().collider();
+        let shape_params = ShapeParams {
+            radius: self.radius,
+            rotation: obj.rotation,
+            scale: Vec3::splat(self.radius),
+        };
+        
+        let mut state = PhysicsState {
+            position: obj.center,
+            velocity: Vec3::ZERO,
+            rotation: obj.rotation,
+            angular_velocity: Vec3::ZERO,
+            mass: 1.0,
+        };
+
         match self.pool_shape {
-            PoolShape::Cylinder => {
-                let max_dist = self.pool_width / 2.0 - self.radius;
-                let dist_sq = obj.center.x * obj.center.x + obj.center.z * obj.center.z;
-                if dist_sq > max_dist * max_dist {
-                    let dist = dist_sq.sqrt();
-                    if dist > 0.0001 {
-                        let normal = Vec3::new(obj.center.x, 0.0, obj.center.z) / dist;
-                        obj.center.x = normal.x * max_dist;
-                        obj.center.z = normal.z * max_dist;
-                    }
-                }
+            PoolShape::Tube => {
+                collider.collide_with_cylinder(
+                    &mut state,
+                    self.pool_width / 2.0,
+                    self.current_shape.as_ref(),
+                    &shape_params,
+                );
+            },
+            PoolShape::Frustum => {
+                collider.collide_with_frustum(
+                    &mut state,
+                    1.0, 
+                    0.7, 
+                    -self.pool_depth,
+                    self.wall_height,
+                    self.current_shape.as_ref(), 
+                    &shape_params,
+                );
             },
             _ => {
                 let half_width = self.pool_width / 2.0;
                 let half_length = self.pool_length / 2.0;
-                
-                obj.center.x = obj.center.x.clamp(
-                    self.radius - half_width,
-                    half_width - self.radius,
-                );
-                obj.center.z = obj.center.z.clamp(
-                    self.radius - half_length,
-                    half_length - self.radius,
+                collider.collide_with_box(
+                    &mut state,
+                    half_width,
+                    half_length,
+                    self.current_shape.as_ref(),
+                    &shape_params,
                 );
             }
         }
+        
+        obj.center = state.position;
         
         obj.center.y = obj.center.y.clamp(
             self.radius - self.pool_depth,
@@ -314,15 +609,22 @@ impl PhysicsEngine {
     
     pub fn reset_objects(&mut self, count: usize) {
         self.objects.clear();
+        let grid_size = (count as f32).sqrt().ceil().max(1.0) as usize;
+        let spacing = 0.4;
+        let offset = (grid_size as f32 - 1.0) * spacing * 0.5;
+        
         for i in 0..count {
-            // Scatter objects slightly
-            let offset_x = (i as f32 % 3.0 - 1.0) * 0.5;
-            let offset_z = ((i / 3) as f32 - 0.5) * 0.5;
+            let row = i / grid_size;
+            let col = i % grid_size;
+            let offset_x = (col as f32) * spacing - offset;
+            let offset_z = (row as f32) * spacing - offset;
             
             self.objects.push(ObjectState {
-                center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.5, offset_z), // Drop from height
-                old_center: Vec3::new(offset_x, 2.0 + (i as f32) * 0.5, offset_z),
+                center: Vec3::new(offset_x, 1.5 + (i as f32) * 0.2, offset_z), // Drop from height
+                old_center: Vec3::new(offset_x, 1.5 + (i as f32) * 0.2, offset_z),
                 velocity: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+                angular_velocity: Vec3::ZERO,
             });
         }
     }

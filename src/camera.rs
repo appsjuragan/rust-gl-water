@@ -25,9 +25,9 @@ pub struct Camera {
 impl Default for Camera {
     fn default() -> Self {
         Self {
-            distance: 3.5,
-            angle_y: 45.0,
-            angle_x: 45.0,
+            distance: 4.0,
+            angle_y: 30.0,
+            angle_x: 25.0,
             fov: 45.0,
             aspect: 16.0 / 9.0,
             near: 0.01,
@@ -85,11 +85,7 @@ impl Camera {
     }
     
     /// Calculate visible area at water level (y=0)
-    pub fn visible_area(&self) -> (f32, f32) {
-        let visible_height = 2.0 * self.distance * (self.fov.to_radians() / 2.0).tan();
-        let visible_width = visible_height * self.aspect;
-        (visible_width, visible_height)
-    }
+
 
     /// Zoom camera (change distance)
     pub fn zoom(&mut self, delta: f32) {

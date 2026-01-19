@@ -12,6 +12,9 @@ use crate::water::Water;
 /// Resolution for caustics texture
 pub const CAUSTICS_TEXTURE_SIZE: u32 = 512;
 
+use crate::core::shape::Shape; // Import Shape trait for generate_mesh
+
+
 /// Common uniforms shared across shaders
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -20,14 +23,14 @@ pub struct CommonUniforms {
     pub wall_height: f32,
     pub pool_size: [f32; 2],
     pub light_dir: [f32; 4],
-    pub sphere_centers: [[f32; 4]; 5],
     pub sphere_radius: f32,
     pub time: f32,
     pub shape_type: i32,
     pub texture_type: i32,
     pub object_count: i32,
     pub pool_shape: i32,
-    pub _padding: [f32; 2],
+    pub enable_gi: i32,
+    pub enable_raytracing: i32,
     pub light_color: [f32; 4],
 }
 
@@ -38,14 +41,14 @@ impl Default for CommonUniforms {
             wall_height: 0.4,
             pool_size: [1.0, 1.0],
             light_dir: [-0.577, 0.577, 0.577, 0.0],
-            sphere_centers: [[0.0; 4]; 5],
             sphere_radius: 0.25,
             time: 0.0,
             shape_type: 0,
-            texture_type: 0,
-            object_count: 1,
+            texture_type: 1,
+            object_count: 5,
             pool_shape: 0,
-            _padding: [0.0; 2],
+            enable_gi: 1,
+            enable_raytracing: 1,
             light_color: [1.0, 1.0, 1.0, 1.0],
         }
     }
@@ -144,6 +147,9 @@ pub struct Renderer {
     sphere_vertex_buffer: wgpu::Buffer,
     sphere_index_buffer: wgpu::Buffer,
     sphere_index_count: u32,
+    
+    sphere_centers_buffer: wgpu::Buffer,
+    sphere_rotations_buffer: wgpu::Buffer,
 
     // Light direction
     pub light_dir: Vec3,
@@ -184,6 +190,20 @@ impl Renderer {
             label: Some("Common Uniform Buffer"),
             contents: bytemuck::cast_slice(&[common_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let sphere_centers_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Sphere Centers Buffer"),
+            size: (std::mem::size_of::<[f32; 4]>() * 64) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let sphere_rotations_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Sphere Rotations Buffer"),
+            size: (std::mem::size_of::<[f32; 4]>() * 64) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         // Create default textures
@@ -245,6 +265,26 @@ impl Renderer {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -259,6 +299,14 @@ impl Renderer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: common_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: sphere_centers_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: sphere_rotations_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -339,7 +387,6 @@ impl Renderer {
                 ],
             });
 
-        // Caustics bind group layout
         let caustics_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Caustics Bind Group Layout"),
@@ -356,6 +403,36 @@ impl Renderer {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
                         visibility: wgpu::ShaderStages::VERTEX,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -365,7 +442,7 @@ impl Renderer {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 2,
+                        binding: 5,
                         visibility: wgpu::ShaderStages::VERTEX,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
@@ -460,7 +537,7 @@ impl Renderer {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Front), // Back face (inside of cube)
+                cull_mode: Some(wgpu::Face::Front),
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -567,7 +644,7 @@ impl Renderer {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -597,8 +674,9 @@ impl Renderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        // Create pool cube mesh
-        let (pool_vertices, pool_indices) = Self::create_cube_mesh();
+        // Create pool cube mesh using dedicated pool mesh generator
+        let (pool_vertices, pool_indices) = Self::create_cube_pool_mesh();
+        
         let pool_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Pool Vertex Buffer"),
             contents: bytemuck::cast_slice(&pool_vertices),
@@ -610,8 +688,17 @@ impl Renderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        // Create sphere mesh
-        let (sphere_vertices, sphere_indices) = Self::create_sphere_mesh(1.0, 32, 32);
+        // Create sphere mesh using Sphere shape
+        let mesh_params = crate::core::shape::MeshParams::default();
+        let sphere_shape = crate::shapes::Sphere::new();
+        let (sphere_verts, sphere_indices) = sphere_shape.generate_mesh(&mesh_params);
+        // Convert to PoolVertex (for reuse)
+        let sphere_vertices: Vec<PoolVertex> = sphere_verts.into_iter().map(|v| PoolVertex {
+            position: v.position,
+            normal: v.normal,
+            uv: v.uv,
+        }).collect();
+
         let sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sphere Vertex Buffer"),
             contents: bytemuck::cast_slice(&sphere_vertices),
@@ -655,6 +742,8 @@ impl Renderer {
             sphere_vertex_buffer,
             sphere_index_buffer,
             sphere_index_count: sphere_indices.len() as u32,
+            sphere_centers_buffer,
+            sphere_rotations_buffer,
             light_dir,
             pool_width: 2.0,
             pool_length: 2.0,
@@ -664,22 +753,39 @@ impl Renderer {
         }
     }
 
-    pub fn update_object_mesh(&mut self, device: &wgpu::Device, shape: &str) {
-        let (vertices, indices) = match shape {
-            "Cube" => {
-                let (mut v, i) = Self::create_cube_mesh();
-                // Normalize cube to fit in unit sphere (scale by 1/sqrt(3))
-                let scale = 1.0 / 3.0f32.sqrt();
-                for vert in &mut v {
-                    vert.position[0] *= scale;
-                    vert.position[1] *= scale;
-                    vert.position[2] *= scale;
-                }
-                (v, i)
-            },
-            "Torus" => Self::create_torus_mesh(0.7, 0.3, 32, 16),
-            "Tetrahedron" => Self::create_tetrahedron_mesh(1.0 / 3.0f32.sqrt()),
-            _ => Self::create_sphere_mesh(1.0, 32, 32), // Default to sphere
+    pub fn update_object_mesh(&mut self, device: &wgpu::Device, shape_name: &str) {
+        // Create registry (lightweight, contains Arcs)
+        let registry = crate::shapes::create_default_registry();
+        let params = crate::core::shape::MeshParams {
+            subdivisions: 32,
+            ..Default::default()
+        };
+        
+        let (vertices, indices) = if let Some(shape) = registry.get(shape_name) {
+            
+            let (shape_verts, shape_indices) = shape.generate_mesh(&params);
+            
+            // Convert ShapeVertex to PoolVertex (layouts are identical)
+            // In a real refactor we should unify these types, but for now we recast
+            // to keep the renderer code minimal
+            let pool_verts: Vec<PoolVertex> = shape_verts.into_iter().map(|v| PoolVertex {
+                position: v.position,
+                normal: v.normal,
+                uv: v.uv,
+            }).collect();
+            
+            (pool_verts, shape_indices)
+        } else {
+            // Fallback to sphere if not found
+            let sphere = crate::shapes::Sphere::new();
+            let (shape_verts, shape_indices) = sphere.generate_mesh(&params);
+            
+            let pool_verts: Vec<PoolVertex> = shape_verts.into_iter().map(|v| PoolVertex {
+                position: v.position,
+                normal: v.normal,
+                uv: v.uv,
+            }).collect();
+            (pool_verts, shape_indices)
         };
 
         self.sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -809,197 +915,7 @@ impl Renderer {
         (vertices, indices)
     }
 
-    fn create_cube_mesh() -> (Vec<PoolVertex>, Vec<u32>) {
-        // Unit cube centered at origin
-        let vertices = vec![
-            // Front face
-            PoolVertex { position: [-1.0, -1.0,  1.0], normal: [0.0, 0.0, 1.0], uv: [0.0, 0.0] },
-            PoolVertex { position: [ 1.0, -1.0,  1.0], normal: [0.0, 0.0, 1.0], uv: [1.0, 0.0] },
-            PoolVertex { position: [ 1.0,  1.0,  1.0], normal: [0.0, 0.0, 1.0], uv: [1.0, 1.0] },
-            PoolVertex { position: [-1.0,  1.0,  1.0], normal: [0.0, 0.0, 1.0], uv: [0.0, 1.0] },
-            // Back face
-            PoolVertex { position: [-1.0, -1.0, -1.0], normal: [0.0, 0.0, -1.0], uv: [1.0, 0.0] },
-            PoolVertex { position: [-1.0,  1.0, -1.0], normal: [0.0, 0.0, -1.0], uv: [1.0, 1.0] },
-            PoolVertex { position: [ 1.0,  1.0, -1.0], normal: [0.0, 0.0, -1.0], uv: [0.0, 1.0] },
-            PoolVertex { position: [ 1.0, -1.0, -1.0], normal: [0.0, 0.0, -1.0], uv: [0.0, 0.0] },
-            // Top face
-            PoolVertex { position: [-1.0,  1.0, -1.0], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
-            PoolVertex { position: [-1.0,  1.0,  1.0], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] },
-            PoolVertex { position: [ 1.0,  1.0,  1.0], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0] },
-            PoolVertex { position: [ 1.0,  1.0, -1.0], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0] },
-            // Bottom face
-            PoolVertex { position: [-1.0, -1.0, -1.0], normal: [0.0, -1.0, 0.0], uv: [0.0, 0.0] },
-            PoolVertex { position: [ 1.0, -1.0, -1.0], normal: [0.0, -1.0, 0.0], uv: [1.0, 0.0] },
-            PoolVertex { position: [ 1.0, -1.0,  1.0], normal: [0.0, -1.0, 0.0], uv: [1.0, 1.0] },
-            PoolVertex { position: [-1.0, -1.0,  1.0], normal: [0.0, -1.0, 0.0], uv: [0.0, 1.0] },
-            // Right face
-            PoolVertex { position: [ 1.0, -1.0, -1.0], normal: [1.0, 0.0, 0.0], uv: [1.0, 0.0] },
-            PoolVertex { position: [ 1.0,  1.0, -1.0], normal: [1.0, 0.0, 0.0], uv: [1.0, 1.0] },
-            PoolVertex { position: [ 1.0,  1.0,  1.0], normal: [1.0, 0.0, 0.0], uv: [0.0, 1.0] },
-            PoolVertex { position: [ 1.0, -1.0,  1.0], normal: [1.0, 0.0, 0.0], uv: [0.0, 0.0] },
-            // Left face
-            PoolVertex { position: [-1.0, -1.0, -1.0], normal: [-1.0, 0.0, 0.0], uv: [0.0, 0.0] },
-            PoolVertex { position: [-1.0, -1.0,  1.0], normal: [-1.0, 0.0, 0.0], uv: [1.0, 0.0] },
-            PoolVertex { position: [-1.0,  1.0,  1.0], normal: [-1.0, 0.0, 0.0], uv: [1.0, 1.0] },
-            PoolVertex { position: [-1.0,  1.0, -1.0], normal: [-1.0, 0.0, 0.0], uv: [0.0, 1.0] },
-        ];
 
-        let indices: Vec<u32> = vec![
-            0, 1, 2, 0, 2, 3,       // Front
-            4, 5, 6, 4, 6, 7,       // Back
-            8, 9, 10, 8, 10, 11,    // Top
-            12, 13, 14, 12, 14, 15, // Bottom
-            16, 17, 18, 16, 18, 19, // Right
-            20, 21, 22, 20, 22, 23, // Left
-        ];
-
-        (vertices, indices)
-    }
-
-    fn create_sphere_mesh(radius: f32, lat_segments: u32, lon_segments: u32) -> (Vec<PoolVertex>, Vec<u32>) {
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-
-        for y in 0..=lat_segments {
-            for x in 0..=lon_segments {
-                let u = x as f32 / lon_segments as f32;
-                let v = y as f32 / lat_segments as f32;
-                
-                let theta = u * std::f32::consts::PI * 2.0;
-                let phi = v * std::f32::consts::PI;
-                
-                let sin_phi = phi.sin();
-                let cos_phi = phi.cos();
-                let sin_theta = theta.sin();
-                let cos_theta = theta.cos();
-                
-                let nx = cos_theta * sin_phi;
-                let ny = cos_phi;
-                let nz = sin_theta * sin_phi;
-                
-                vertices.push(PoolVertex {
-                    position: [nx * radius, ny * radius, nz * radius],
-                    normal: [nx, ny, nz],
-                    uv: [u, v],
-                });
-            }
-        }
-
-        for y in 0..lat_segments {
-            for x in 0..lon_segments {
-                let first = (y * (lon_segments + 1)) + x;
-                let second = first + lon_segments + 1;
-                
-                indices.push(first);
-                indices.push(first + 1);
-                indices.push(second);
-                
-                indices.push(second);
-                indices.push(first + 1);
-                indices.push(second + 1);
-            }
-        }
-
-        (vertices, indices)
-    }
-
-
-    fn create_torus_mesh(radius: f32, tube_radius: f32, radial_segments: u32, tubular_segments: u32) -> (Vec<PoolVertex>, Vec<u32>) {
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-
-        for j in 0..=radial_segments {
-            for i in 0..=tubular_segments {
-                let u = i as f32 / tubular_segments as f32;
-                let v = j as f32 / radial_segments as f32;
-
-                let theta = u * std::f32::consts::PI * 2.0;
-                let phi = v * std::f32::consts::PI * 2.0;
-
-                let cos_theta = theta.cos();
-                let sin_theta = theta.sin();
-                let cos_phi = phi.cos();
-                let sin_phi = phi.sin();
-
-                let x = (radius + tube_radius * cos_phi) * cos_theta;
-                let y = tube_radius * sin_phi;
-                let z = (radius + tube_radius * cos_phi) * sin_theta;
-
-                let nx = cos_phi * cos_theta;
-                let ny = sin_phi;
-                let nz = cos_phi * sin_theta;
-
-                vertices.push(PoolVertex {
-                    position: [x, y, z],
-                    normal: [nx, ny, nz],
-                    uv: [u, v],
-                });
-            }
-        }
-
-        for j in 0..radial_segments {
-            for i in 0..tubular_segments {
-                let first = (j * (tubular_segments + 1)) + i;
-                let second = first + tubular_segments + 1;
-
-                indices.push(first);
-                indices.push(second);
-                indices.push(first + 1);
-
-                indices.push(second);
-                indices.push(second + 1);
-                indices.push(first + 1);
-            }
-        }
-
-        (vertices, indices)
-    }
-
-    fn create_tetrahedron_mesh(size: f32) -> (Vec<PoolVertex>, Vec<u32>) {
-         // Define vertices for a simple unit tetrahedron
-        let p0 = [ 1.0,  1.0,  1.0];
-        let p1 = [-1.0, -1.0,  1.0];
-        let p2 = [-1.0,  1.0, -1.0];
-        let p3 = [ 1.0, -1.0, -1.0];
-        
-        // Scale
-        let p0 = [p0[0]*size, p0[1]*size, p0[2]*size];
-        let p1 = [p1[0]*size, p1[1]*size, p1[2]*size];
-        let p2 = [p2[0]*size, p2[1]*size, p2[2]*size];
-        let p3 = [p3[0]*size, p3[1]*size, p3[2]*size];
-
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-        
-        let faces = [
-            (p0, p2, p1),
-            (p0, p3, p2),
-            (p0, p1, p3),
-            (p1, p2, p3)
-        ];
-        
-        let uvs = [[0.0, 0.0], [1.0, 0.0], [0.5, 1.0]];
-
-        let mut idx = 0;
-        for (a, b, c) in faces {
-             // Calculate normal
-             let v0 = glam::Vec3::from_array(a);
-             let v1 = glam::Vec3::from_array(b);
-             let v2 = glam::Vec3::from_array(c);
-             let normal = (v1 - v0).cross(v2 - v0).normalize().to_array();
-             
-             vertices.push(PoolVertex { position: a, normal, uv: uvs[0] });
-             vertices.push(PoolVertex { position: b, normal, uv: uvs[1] });
-             vertices.push(PoolVertex { position: c, normal, uv: uvs[2] });
-             
-             indices.push(idx);
-             indices.push(idx + 1);
-             indices.push(idx + 2);
-             idx += 3;
-        }
-
-        (vertices, indices)
-    }
 
     /// Create a frustum (truncated pyramid) pool mesh - narrower at bottom
     fn create_frustum_pool_mesh(bottom_scale: f32) -> (Vec<PoolVertex>, Vec<u32>) {
@@ -1012,24 +928,24 @@ impl Renderer {
         
         // Bottom face (smaller square)
         let bottom_verts = [
-            PoolVertex { position: [-bot, -1.0, -bot], normal: [0.0, -1.0, 0.0], uv: [0.0, 0.0] },
-            PoolVertex { position: [ bot, -1.0, -bot], normal: [0.0, -1.0, 0.0], uv: [1.0, 0.0] },
-            PoolVertex { position: [ bot, -1.0,  bot], normal: [0.0, -1.0, 0.0], uv: [1.0, 1.0] },
-            PoolVertex { position: [-bot, -1.0,  bot], normal: [0.0, -1.0, 0.0], uv: [0.0, 1.0] },
+            PoolVertex { position: [-bot, -1.0, -bot], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] },
+            PoolVertex { position: [ bot, -1.0, -bot], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0] },
+            PoolVertex { position: [ bot, -1.0,  bot], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0] },
+            PoolVertex { position: [-bot, -1.0,  bot], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
         ];
         vertices.extend_from_slice(&bottom_verts);
-        indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+        indices.extend_from_slice(&[0, 2, 3, 0, 1, 2]);
         
         // Four trapezoidal walls
         let wall_data = [
-            // Front wall (z = positive)
-            ([-top, 1.0, top], [top, 1.0, top], [bot, -1.0, bot], [-bot, -1.0, bot], [0.0, 0.0, 1.0]),
-            // Back wall (z = negative)
-            ([top, 1.0, -top], [-top, 1.0, -top], [-bot, -1.0, -bot], [bot, -1.0, -bot], [0.0, 0.0, -1.0]),
-            // Right wall (x = positive)
-            ([top, 1.0, top], [top, 1.0, -top], [bot, -1.0, -bot], [bot, -1.0, bot], [1.0, 0.0, 0.0]),
-            // Left wall (x = negative)
-            ([-top, 1.0, -top], [-top, 1.0, top], [-bot, -1.0, bot], [-bot, -1.0, -bot], [-1.0, 0.0, 0.0]),
+            // Front wall (z = positive) - Normal points -Z (Inward)
+            ([-top, 1.0, top], [top, 1.0, top], [bot, -1.0, bot], [-bot, -1.0, bot], [0.0, 0.0, -1.0]),
+            // Back wall (z = negative) - Normal points +Z (Inward)
+            ([top, 1.0, -top], [-top, 1.0, -top], [-bot, -1.0, -bot], [bot, -1.0, -bot], [0.0, 0.0, 1.0]),
+            // Right wall (x = positive) - Normal points -X (Inward)
+            ([top, 1.0, top], [top, 1.0, -top], [bot, -1.0, -bot], [bot, -1.0, bot], [-1.0, 0.0, 0.0]),
+            // Left wall (x = negative) - Normal points +X (Inward)
+            ([-top, 1.0, -top], [-top, 1.0, top], [-bot, -1.0, bot], [-bot, -1.0, -bot], [1.0, 0.0, 0.0]),
         ];
         
         let mut idx = 4u32; // Start after bottom face vertices
@@ -1039,7 +955,7 @@ impl Renderer {
             vertices.push(PoolVertex { position: br, normal, uv: [1.0, 1.0] });
             vertices.push(PoolVertex { position: bl, normal, uv: [0.0, 1.0] });
             
-            indices.extend_from_slice(&[idx, idx+1, idx+2, idx, idx+2, idx+3]);
+            indices.extend_from_slice(&[idx, idx+2, idx+1, idx, idx+3, idx+2]);
             idx += 4;
         }
         
@@ -1128,10 +1044,10 @@ impl Renderer {
     /// Update pool mesh based on selected shape
     pub fn update_pool_mesh(&mut self, device: &wgpu::Device, shape: &str) {
         let (vertices, indices) = match shape {
-            "Cuboid" | "Cube" => Self::create_cube_mesh(),
+            "Cuboid" | "Cube" => Self::create_cube_pool_mesh(),
             "Frustum" => Self::create_frustum_pool_mesh(0.7), // 70% size at bottom
-            "Cylinder" => Self::create_cylinder_pool_mesh(32),
-            _ => Self::create_cube_mesh(), // Default to cube
+            "Tube" => Self::create_cylinder_pool_mesh(32),
+            _ => Self::create_cube_pool_mesh(), // Default to cube
         };
         
         self.pool_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1145,6 +1061,48 @@ impl Renderer {
             usage: wgpu::BufferUsages::INDEX,
         });
         self.pool_index_count = indices.len() as u32;
+    }
+
+    /// Create a cube pool mesh (open-top container)
+    fn create_cube_pool_mesh() -> (Vec<PoolVertex>, Vec<u32>) {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        
+        // Pool is a unit cube from -1 to 1, open on top
+        // Bottom face (Y-)
+        let bottom_verts = [
+            PoolVertex { position: [-1.0, -1.0, -1.0], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] },
+            PoolVertex { position: [ 1.0, -1.0, -1.0], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0] },
+            PoolVertex { position: [ 1.0, -1.0,  1.0], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0] },
+            PoolVertex { position: [-1.0, -1.0,  1.0], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
+        ];
+        vertices.extend_from_slice(&bottom_verts);
+        indices.extend_from_slice(&[0, 2, 3, 0, 1, 2]); // CW to be visible with Front culling
+        
+        // Four walls (normals pointing inward)
+        let wall_data = [
+            // Front wall (Z+), normal points -Z (into pool)
+            ([-1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, -1.0, 1.0], [-1.0, -1.0, 1.0], [0.0, 0.0, -1.0]),
+            // Back wall (Z-), normal points +Z (into pool)
+            ([1.0, 1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [0.0, 0.0, 1.0]),
+            // Right wall (X+), normal points -X (into pool)
+            ([1.0, 1.0, 1.0], [1.0, 1.0, -1.0], [1.0, -1.0, -1.0], [1.0, -1.0, 1.0], [-1.0, 0.0, 0.0]),
+            // Left wall (X-), normal points +X (into pool)
+            ([-1.0, 1.0, -1.0], [-1.0, 1.0, 1.0], [-1.0, -1.0, 1.0], [-1.0, -1.0, -1.0], [1.0, 0.0, 0.0]),
+        ];
+        
+        let mut idx = 4u32;
+        for (tl, tr, br, bl, normal) in wall_data {
+            vertices.push(PoolVertex { position: tl, normal, uv: [0.0, 0.0] });
+            vertices.push(PoolVertex { position: tr, normal, uv: [1.0, 0.0] });
+            vertices.push(PoolVertex { position: br, normal, uv: [1.0, 1.0] });
+            vertices.push(PoolVertex { position: bl, normal, uv: [0.0, 1.0] });
+            
+            indices.extend_from_slice(&[idx, idx+2, idx+1, idx, idx+3, idx+2]); // CCW from inside
+            idx += 4;
+        }
+        
+        (vertices, indices)
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
@@ -1164,6 +1122,8 @@ impl Renderer {
         texture_type: i32,
         light_color: [f32; 3],
         pool_shape: i32,
+        enable_gi: bool,
+        enable_raytracing: bool,
     ) {
         self.camera_uniform.update(camera);
         queue.write_buffer(
@@ -1172,18 +1132,30 @@ impl Renderer {
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
 
-        // Populate centers array
-        let mut centers = [[0.0f32; 4]; 5];
-        let count = objects.len().min(5);
+        // Populate centers and rotations
+        let mut centers = [[0.0f32; 4]; 64];
+        let mut rotations = [[0.0f32; 4]; 64];
+        let count = objects.len().min(64);
         for i in 0..count {
             centers[i] = [objects[i].center.x, objects[i].center.y, objects[i].center.z, 0.0];
+            rotations[i] = [objects[i].rotation.x, objects[i].rotation.y, objects[i].rotation.z, objects[i].rotation.w];
         }
 
         self.common_uniform.pool_height = self.pool_height;
         self.common_uniform.wall_height = self.wall_height;
         self.common_uniform.pool_size = [self.pool_width / 2.0, self.pool_length / 2.0];
         self.common_uniform.light_dir = [self.light_dir.x, self.light_dir.y, self.light_dir.z, 0.0];
-        self.common_uniform.sphere_centers = centers;
+        
+        queue.write_buffer(
+            &self.sphere_centers_buffer,
+            0,
+            bytemuck::cast_slice(&centers),
+        );
+        queue.write_buffer(
+            &self.sphere_rotations_buffer,
+            0,
+            bytemuck::cast_slice(&rotations),
+        );
         self.common_uniform.sphere_radius = sphere_radius;
         self.common_uniform.time = time;
         self.common_uniform.shape_type = shape_type;
@@ -1191,6 +1163,8 @@ impl Renderer {
         self.common_uniform.object_count = count as i32;
         self.common_uniform.light_color = [light_color[0], light_color[1], light_color[2], 1.0];
         self.common_uniform.pool_shape = pool_shape;
+        self.common_uniform.enable_gi = if enable_gi { 1 } else { 0 };
+        self.common_uniform.enable_raytracing = if enable_raytracing { 1 } else { 0 };
 
         // self.sphere_center is no longer tracked per object in Renderer struct
         self.sphere_radius = sphere_radius;
@@ -1202,12 +1176,7 @@ impl Renderer {
         );
     }
 
-    pub fn update_dimensions(&mut self, width: f32, length: f32, depth: f32, wall_height: f32) {
-        self.pool_width = width;
-        self.pool_length = length;
-        self.pool_height = depth;
-        self.wall_height = wall_height;
-    }
+
 
     pub fn render_caustics(
         &self,
@@ -1221,14 +1190,26 @@ impl Renderer {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: self.common_uniform_buffer.as_entire_binding(),
+                    resource: self.camera_uniform_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(water.current_texture_view()),
+                    resource: self.common_uniform_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
+                    resource: self.sphere_centers_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.sphere_rotations_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(water.current_texture_view()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
                     resource: wgpu::BindingResource::Sampler(water.sampler()),
                 },
             ],

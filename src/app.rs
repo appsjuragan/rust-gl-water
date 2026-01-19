@@ -27,20 +27,7 @@ enum AppState {
     Running,
 }
 
-/// Application configuration
-pub struct AppConfig {
-    pub container_height: f32,
-    pub water_fill_ratio: f32,
-}
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            container_height: 1.4,
-            water_fill_ratio: 0.7,
-        }
-    }
-}
 
 /// Graphics state
 struct GfxState {
@@ -147,7 +134,6 @@ pub struct Application {
     camera: Camera,
     physics: PhysicsEngine,
     input: InputManager,
-    config: AppConfig,
     last_frame: Instant,
     time: f32,
     paused: bool,
@@ -169,7 +155,6 @@ impl Application {
             camera: Camera::default(),
             physics: PhysicsEngine::default(),
             input: InputManager::default(),
-            config: AppConfig::default(),
             last_frame: Instant::now(),
             time: 0.0,
             paused: false,
@@ -231,6 +216,27 @@ impl Application {
         // Update physics
         self.physics.update(dt, water_height, self.input.mouse_point, self.dragged_object_index);
 
+        // Process physics ripples
+        if !self.physics.ripples.is_empty() {
+             let mut encoder = gfx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Ripple Encoder"),
+            });
+            
+            for ripple in &self.physics.ripples {
+                 gfx.water.add_drop(
+                    &gfx.device,
+                    &gfx.queue,
+                    &mut encoder,
+                    ripple.x,
+                    ripple.z,
+                    ripple.radius,
+                    ripple.strength,
+                );
+            }
+            
+            gfx.queue.submit(Some(encoder.finish()));
+        }
+
         // Handle sphere dragging
         if let Some(delta) = self.input.get_sphere_drag_delta(self.camera.view_projection_matrix().inverse()) {
             if let Some(idx) = self.dragged_object_index {
@@ -267,8 +273,8 @@ impl Application {
         });
 
         // Step simulation - with fixed DT we only need a small fixed number
-        // Using 4 steps per fixed update (at 60Hz) for the classic wave look
-        for _ in 0..4 {
+        // Using 6 steps per fixed update - balanced for speed and performance
+        for _ in 0..6 {
             gfx.water.step_simulation(&gfx.device, &gfx.queue, &mut encoder);
         }
         gfx.water.update_normals(&gfx.device, &gfx.queue, &mut encoder);
@@ -318,98 +324,146 @@ impl Application {
                     .resizable(false)
                     .collapsible(false)
                     .show(ctx, |ui| {
-                         ui.heading("Run Parameters");
-                         ui.add_space(10.0);
+                        ui.set_min_width(550.0);
+                        ui.vertical_centered(|ui| {
+                            ui.heading("Run Parameters");
+                        });
+                        ui.add_space(8.0);
                          
-                         ui.label("Gravity (g)");
-                         ui.add(egui::Slider::new(&mut config.gravity, 0.25..=5.0).step_by(0.25));
+                        ui.horizontal(|ui| {
+                            ui.label("Gravity (g)");
+                            ui.add_space(10.0);
+                            ui.add(egui::Slider::new(&mut config.gravity, 0.25..=5.0).step_by(0.25).text("step 0.25"));
+                        });
                          
-                         ui.add_space(10.0);
+                        ui.add_space(16.0);
                          
-                         // Shape and Texture side by side
-                         ui.horizontal(|ui| {
-                             ui.vertical(|ui| {
-                                 ui.label("Shape:");
-                                 ui.radio_value(&mut config.shape, Shape::Sphere, "Sphere");
-                                 ui.radio_value(&mut config.shape, Shape::Torus, "Torus");
-                                 ui.radio_value(&mut config.shape, Shape::Tetrahedron, "Tetrahedron");
-                                 ui.radio_value(&mut config.shape, Shape::Cube, "Cube");
-                             });
+                        // 3-column layout: Shape, Textures, Pool Shape
+                        ui.columns(3, |columns| {
+                            columns[0].vertical(|ui| {
+                                ui.label("Object Shape:");
+                                ui.radio_value(&mut config.shape, Shape::Sphere, "Sphere");
+                                ui.radio_value(&mut config.shape, Shape::Torus, "Torus");
+                                ui.radio_value(&mut config.shape, Shape::Tetrahedron, "Tetrahedron");
+                                ui.radio_value(&mut config.shape, Shape::Cube, "Cube");
+                            });
                              
-                             ui.add_space(40.0);
+                            columns[1].vertical(|ui| {
+                                ui.label("Textures:");
+                                ui.radio_value(&mut config.texture, Texture::Glass, "Glass");
+                                ui.radio_value(&mut config.texture, Texture::Wood, "Wood");
+                                ui.radio_value(&mut config.texture, Texture::Steel, "Steel");
+                                ui.radio_value(&mut config.texture, Texture::Ice, "Ice");
+                            });
                              
-                             ui.vertical(|ui| {
-                                 ui.label("Textures:");
-                                 ui.radio_value(&mut config.texture, Texture::Glass, "Glass");
-                                 ui.radio_value(&mut config.texture, Texture::Wood, "Wood");
-                                 ui.radio_value(&mut config.texture, Texture::Steel, "Steel");
-                                 ui.radio_value(&mut config.texture, Texture::Ice, "Ice");
-                             });
-                         });
+                            columns[2].vertical(|ui| {
+                                ui.label("Pool Shape:");
+                                ui.radio_value(&mut config.pool_shape, PoolShape::Tube, "Tube");
+                                ui.radio_value(&mut config.pool_shape, PoolShape::Cube, "Cube");
+                                ui.radio_value(&mut config.pool_shape, PoolShape::Cuboid, "Cuboid");
+                                ui.radio_value(&mut config.pool_shape, PoolShape::Frustum, "Frustum");
+                            });
+                        });
                          
-                         ui.add_space(10.0);
-                         ui.label("Object Numbers:");
-                         ui.add(egui::Slider::new(&mut config.object_count, 1..=5));
+                        ui.add_space(16.0);
+                        
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label("Object Count:");
+                                ui.add(egui::Slider::new(&mut config.object_count, 1..=50));
+                            });
+                            
+                            ui.add_space(20.0);
 
-                         ui.add_space(10.0);
-                         ui.label("Light Color:");
-                         ui.horizontal(|ui| {
-                             ui.label("Red");
-                             ui.add(egui::Slider::new(&mut config.light_color[0], 1..=255));
-                         });
-                         ui.horizontal(|ui| {
-                             ui.label("Green");
-                             ui.add(egui::Slider::new(&mut config.light_color[1], 1..=255));
-                         });
-                         ui.horizontal(|ui| {
-                             ui.label("Blue");
-                             ui.add(egui::Slider::new(&mut config.light_color[2], 1..=255));
-                         });
+                            // Backend selection
+                            ui.vertical(|ui| {
+                                ui.label("Graphics Backend:");
+                                ui.horizontal(|ui| {
+                                    ui.radio_value(&mut config.backend, Backend::OpenGL, "OpenGL");
+                                    ui.radio_value(&mut config.backend, Backend::Vulkan, "Vulkan");
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.radio_value(&mut config.backend, Backend::Dx11, "DX11");
+                                    ui.radio_value(&mut config.backend, Backend::Dx12, "DX12");
+                                    ui.radio_value(&mut config.backend, Backend::Auto, "Auto");
+                                });
+                            });
+                        });
+
+                        ui.add_space(10.0);
+                        
+                        ui.horizontal(|ui| {
+                           ui.vertical(|ui| {
+                               ui.label("Light Color:");
+                               let mut color_srgba = egui::Color32::from_rgb(config.light_color[0], config.light_color[1], config.light_color[2]);
+                               ui.color_edit_button_srgba(&mut color_srgba);
+                               config.light_color = [color_srgba.r(), color_srgba.g(), color_srgba.b()];
+                               ui.label("color wheel");
+                               
+                               ui.add_space(10.0);
+                               ui.label("Intensity:");
+                               ui.add(egui::Slider::new(&mut config.light_intensity, 0.0..=5.0));
+                           });
+                           
+                           ui.vertical(|ui| {
+                               ui.horizontal(|ui| {
+                                   ui.label("Red");
+                                   ui.add(egui::Slider::new(&mut config.light_color[0], 0..=255));
+                               });
+                               ui.horizontal(|ui| {
+                                   ui.label("Green");
+                                   ui.add(egui::Slider::new(&mut config.light_color[1], 0..=255));
+                               });
+                               ui.horizontal(|ui| {
+                                   ui.label("Blue");
+                                   ui.add(egui::Slider::new(&mut config.light_color[2], 0..=255));
+                               });
+                           });
+                        });
+                        
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut config.enable_gi, "Enable Global Illumination");
+                            ui.add_space(20.0);
+                            ui.checkbox(&mut config.enable_raytracing, "Enable Ray Tracing");
+                        });
                          
-                         ui.add_space(10.0);
-                         ui.separator();
-                         
-                         // Backend and Pool Shape side by side
-                         ui.horizontal(|ui| {
-                             ui.vertical(|ui| {
-                                 ui.label("Graphics Backend:");
-                                 ui.radio_value(&mut config.backend, Backend::Auto, "Auto");
-                                 ui.radio_value(&mut config.backend, Backend::Vulkan, "Vulkan");
-                             });
-                             
-                             ui.add_space(40.0);
-                             
-                             ui.vertical(|ui| {
-                                 ui.label("Pool Shape:");
-                                 ui.radio_value(&mut config.pool_shape, PoolShape::Cube, "Cube");
-                                 ui.radio_value(&mut config.pool_shape, PoolShape::Cuboid, "Cuboid");
-                                 ui.radio_value(&mut config.pool_shape, PoolShape::Frustum, "Frustum");
-                                 ui.radio_value(&mut config.pool_shape, PoolShape::Cylinder, "Cylinder");
-                             });
-                         });
-                         
-                         ui.add_space(20.0);
-                         ui.horizontal(|ui| {
-                             if ui.button("RESET").clicked() {
-                                 *config = RunConfig::default();
-                             }
-                             if ui.button("RUN").clicked() {
-                                 run_clicked = true;
-                             }
-                         });
+                        ui.add_space(24.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Run Simulation").clicked() {
+                                run_clicked = true;
+                            }
+                        });
                     });
             });
+            
+            gfx.queue.submit(Some(encoder.finish()));
+            output.present();
             
             if run_clicked {
                 self.state = AppState::Running;
                 
-                // Update Config Logic Inline
                 {
                     let config = &self.run_config;
                     self.physics.gravity = Vec3::new(0.0, -9.81 * config.gravity, 0.0);
                     self.physics.pool_shape = config.pool_shape;
                     
-                    // Reset object position and velocity
+                    // Set material density based on texture
+                    self.physics.material_density = config.texture.density();
+                    
+                    let (width, length) = match config.pool_shape {
+                        PoolShape::Cuboid => (2.0, 3.0),
+                        _ => (2.0, 2.0),
+                    };
+                    
+                    self.physics.pool_width = width;
+                    self.physics.pool_length = length;
+                    gfx.renderer.pool_width = width;
+                    gfx.renderer.pool_length = length;
+                    gfx.water.pool_width = width;
+                    gfx.water.pool_length = length;
+                    self.physics.wall_height = gfx.renderer.wall_height;
+                    
                     self.physics.reset_objects(config.object_count);
                     
                     let shape_name = match config.shape {
@@ -419,13 +473,13 @@ impl Application {
                         Shape::Cube => "Cube",
                     };
                     gfx.renderer.update_object_mesh(&gfx.device, shape_name);
+                    self.physics.set_shape(shape_name);
                     
-                    // Update pool shape mesh
                     let pool_shape_name = match config.pool_shape {
                         PoolShape::Cube => "Cube",
                         PoolShape::Cuboid => "Cuboid",
                         PoolShape::Frustum => "Frustum",
-                        PoolShape::Cylinder => "Cylinder",
+                        PoolShape::Tube => "Tube",
                     };
                     gfx.renderer.update_pool_mesh(&gfx.device, pool_shape_name);
                     
@@ -436,6 +490,8 @@ impl Application {
                         c[2] as f32 / 255.0,
                         1.0
                     ];
+                    gfx.renderer.common_uniform.enable_gi = if config.enable_gi { 1 } else { 0 };
+                    gfx.renderer.common_uniform.enable_raytracing = if config.enable_raytracing { 1 } else { 0 };
                 }
 
                 // Initial Drops Logic Inline
@@ -454,9 +510,6 @@ impl Application {
                     gfx.queue.submit(Some(encoder.finish()));
                 }
             }
-            
-            gfx.queue.submit(Some(encoder.finish()));
-            output.present();
             
             return Ok(());
         }
@@ -480,11 +533,12 @@ impl Application {
         };
 
         let lc = self.run_config.light_color;
+        let intensity = self.run_config.light_intensity;
         
         let pool_shape_idx = match self.run_config.pool_shape {
             PoolShape::Cube | PoolShape::Cuboid => 0,
             PoolShape::Frustum => 1,
-            PoolShape::Cylinder => 2,
+            PoolShape::Tube => 2,
         };
 
         gfx.renderer.update_uniforms(
@@ -495,8 +549,14 @@ impl Application {
             self.time,
             shape_type,
             texture_type,
-            [lc[0] as f32 / 255.0, lc[1] as f32 / 255.0, lc[2] as f32 / 255.0],
+            [
+                (lc[0] as f32 / 255.0) * intensity,
+                (lc[1] as f32 / 255.0) * intensity,
+                (lc[2] as f32 / 255.0) * intensity
+            ],
             pool_shape_idx,
+            self.run_config.enable_gi,
+            self.run_config.enable_raytracing,
         );
 
         // Update FPS UI
@@ -543,36 +603,14 @@ impl Application {
         Ok(())
     }
 
-    fn update_pool_dimensions(&mut self) {
-        let water_depth = self.config.container_height * self.config.water_fill_ratio;
-        let wall_height = self.config.container_height * (1.0 - self.config.water_fill_ratio);
 
-        self.physics.pool_depth = water_depth;
-
-        if let Some(gfx) = &mut self.gfx {
-            gfx.renderer.update_dimensions(
-                self.physics.pool_width,
-                self.physics.pool_length,
-                water_depth,
-                wall_height,
-            );
-            gfx.water.update_dimensions(
-                self.physics.pool_width,
-                self.physics.pool_length,
-            );
-        }
-    }
 
     fn on_resize(&mut self, width: u32, height: u32) {
         self.camera.set_aspect(width as f32, height as f32);
         self.input.set_screen_size(width as f32, height as f32);
 
-        // Auto-resize pool to fill screen
-        let (visible_width, visible_height) = self.camera.visible_area();
-        self.physics.pool_width = visible_width;
-        self.physics.pool_length = visible_height;
-
-        self.update_pool_dimensions();
+        // Keep pool dimensions fixed - don't auto-resize on window resize
+        // Pool dimensions are set on startup and by update_pool_dimensions
     }
 }
 
@@ -701,6 +739,8 @@ impl ApplicationHandler for Application {
                             self.physics.radius,
                             self.physics.pool_width,
                             self.physics.pool_length,
+                            self.gfx.as_ref().unwrap().renderer.pool_height,
+                            self.gfx.as_ref().unwrap().renderer.wall_height,
                             &self.run_config.pool_shape,
                         );
                         self.dragged_object_index = hit_idx;

@@ -3,6 +3,13 @@
 //! A port of the WebGL2 Water simulation to Rust using wgpu.
 //! Original: https://github.com/idootop/webgl2-water
 
+// New architecture modules
+mod core;
+mod shapes;
+mod scene;
+
+// Existing modules
+
 mod app;
 mod water;
 mod ui;

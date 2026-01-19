@@ -2,7 +2,7 @@
 
 use wgpu::util::DeviceExt;
 
-use crate::shaders::water_sim::{DROP_SHADER, NORMAL_SHADER, SPHERE_VOLUME_SHADER, UPDATE_SHADER};
+use crate::shaders::water_sim::{DROP_SHADER, NORMAL_SHADER, UPDATE_SHADER, sphere_volume_shader};
 
 /// Resolution of the water simulation texture
 pub const WATER_TEXTURE_SIZE: u32 = 512;
@@ -64,6 +64,7 @@ struct UpdateUniforms {
 struct ObjectTransition {
     old_center: [f32; 4],
     new_center: [f32; 4],
+    rotation: [f32; 4],
     strength: f32,
     _padding: [f32; 3],
 }
@@ -71,15 +72,16 @@ struct ObjectTransition {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct SphereVolumeUniforms {
-    objects: [ObjectTransition; 5],
-    radius: f32,
-    _pad0: f32, // Pad to 8-byte alignment for pool_size (vec2)
-    pool_size: [f32; 2],
-    shape_type: i32,
-    object_count: i32,
-    _pad1: f32,
-    _pad2: f32,
+    pub objects: [ObjectTransition; 64],
+    pub radius: f32,
+    pub _pad0: f32, // Pad to 8-byte alignment for pool_size (vec2)
+    pub pool_size: [f32; 2],
+    pub shape_type: i32,
+    pub object_count: i32,
+    pub _pad1: f32,
+    pub _pad2: f32,
 }
+
 
 impl Water {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -162,9 +164,10 @@ impl Water {
                 objects: [ObjectTransition {
                     old_center: [0.0; 4],
                     new_center: [0.0; 4],
+                    rotation: [0.0; 4],
                     strength: 0.0,
                     _padding: [0.0; 3],
-                }; 5],
+                }; 64],
                 radius: 0.25,
                 _pad0: 0.0,
                 pool_size: [pool_width, pool_length],
@@ -266,7 +269,7 @@ impl Water {
         let drop_pipeline = create_pipeline(DROP_SHADER, "Drop Pipeline");
         let update_pipeline = create_pipeline(UPDATE_SHADER, "Update Pipeline");
         let normal_pipeline = create_pipeline(NORMAL_SHADER, "Normal Pipeline");
-        let sphere_pipeline = create_pipeline(SPHERE_VOLUME_SHADER, "Sphere Pipeline");
+        let sphere_pipeline = create_pipeline(&sphere_volume_shader(), "Sphere Pipeline");
 
         Self {
             _texture_a: texture_a,
@@ -500,11 +503,12 @@ impl Water {
         let mut object_transitions = [ObjectTransition {
             old_center: [0.0; 4],
             new_center: [0.0; 4],
+            rotation: [0.0; 4],
             strength: 0.0,
             _padding: [0.0; 3],
-        }; 5];
+        }; 64];
 
-        let count = objects.len().min(5);
+        let count = objects.len().min(64);
         for i in 0..count {
             let obj = &objects[i];
             let displacement = (obj.center - obj.old_center).length();
@@ -514,6 +518,7 @@ impl Water {
             object_transitions[i] = ObjectTransition {
                 old_center: [obj.old_center.x / scale_x, obj.old_center.y, obj.old_center.z / scale_z, 0.0],
                 new_center: [obj.center.x / scale_x, obj.center.y, obj.center.z / scale_z, 0.0],
+                rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z, obj.rotation.w],
                 strength: dynamic_strength,
                 _padding: [0.0; 3],
             };
@@ -559,9 +564,5 @@ impl Water {
         self.swap();
     }
 
-    /// Update pool dimensions
-    pub fn update_dimensions(&mut self, width: f32, length: f32) {
-        self.pool_width = width;
-        self.pool_length = length;
-    }
+
 }

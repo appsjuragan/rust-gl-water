@@ -21,18 +21,37 @@ pub enum Texture {
     Ice,
 }
 
+impl Texture {
+    /// Returns material density relative to water (water = 1.0)
+    /// Glass: 2.5 (sinks)
+    /// Wood: 0.6 (floats ~40% above water)
+    /// Steel: 7.8 (sinks fast)
+    /// Ice: 0.92 (floats ~8% above water)
+    pub fn density(&self) -> f32 {
+        match self {
+            Texture::Glass => 2.5,
+            Texture::Wood => 0.6,
+            Texture::Steel => 7.8,
+            Texture::Ice => 0.92,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Backend {
-    Auto,    // Use wgpu::Backends::all() - let wgpu choose
-    Vulkan,  // Force Vulkan backend
+    Auto,
+    Vulkan,
+    OpenGL,
+    Dx11,
+    Dx12,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PoolShape {
-    Cube,       // Equal width/length/depth (current default)
-    Cuboid,     // Rectangular (same as cube visually)
-    Frustum,    // Truncated pyramid - narrows toward bottom
-    Cylinder,   // Circular pool
+    Tube,       // Renamed from Cylinder
+    Cube,
+    Cuboid,
+    Frustum,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +63,9 @@ pub struct AppConfig {
     pub object_count: usize,
     pub backend: Backend,
     pub pool_shape: PoolShape,
+    pub light_intensity: f32,
+    pub enable_gi: bool,
+    pub enable_raytracing: bool,
 }
 
 impl Default for AppConfig {
@@ -51,11 +73,14 @@ impl Default for AppConfig {
         Self {
             gravity: 1.0,
             shape: Shape::Sphere,
-            texture: Texture::Glass,
+            texture: Texture::Wood, // Matching UI image
             light_color: [255, 255, 255],
-            object_count: 1,
+            object_count: 5, // Matching UI image
             backend: Backend::Auto,
-            pool_shape: PoolShape::Cube,
+            pool_shape: PoolShape::Cube, // Matching UI image
+            light_intensity: 1.0,
+            enable_gi: true,
+            enable_raytracing: true,
         }
     }
 }
