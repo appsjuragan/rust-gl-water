@@ -9,11 +9,3 @@ pub mod enums;
 pub mod geometry;
 pub mod state;
 
-pub use shape::{Shape, ShapeParams, MeshParams, ShapeRegistry, BoxedShape};
-pub use physics_trait::{Collider, CollisionInfo, BuoyancyCalculator};
-pub use material::{Material, MaterialType, MaterialProperties, TextureSource, TextureLoader, PoolTexture};
-pub use graphics_backend::{GraphicsBackend, BackendType};
-pub use constants::*;
-pub use enums::*;
-pub use geometry::*;
-pub use state::*;

@@ -7,7 +7,8 @@ use crate::physics::ObjectState;
 use crate::camera::{Camera, CameraUniform};
 use crate::shaders::{caustics::caustics_shader, pool::pool_shader, water_render::water_shader, sphere::sphere_shader};
 use crate::water::Water;
-use crate::core::shape::Shape;
+use crate::core::shape::Shape; 
+use crate::core::geometry::Vertex;
 use crate::core::constants::{
     CAUSTICS_TEXTURE_SIZE, POOL_DEPTH, WALL_HEIGHT, DEFAULT_OBJECT_RADIUS,
     DEFAULT_OBJECT_COUNT, POOL_SIZE_DEFAULT, DEFAULT_LIGHT_DIR, DEFAULT_LIGHT_COLOR,
@@ -55,53 +56,7 @@ impl Default for CommonUniforms {
     }
 }
 
-/// Vertex for water surface mesh
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct WaterVertex {
-    pub position: [f32; 3],
-    pub uv: [f32; 2],
-}
 
-impl WaterVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![
-        0 => Float32x3,
-        1 => Float32x2,
-    ];
-
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<WaterVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBS,
-        }
-    }
-}
-
-/// Vertex for pool cube
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct PoolVertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    pub uv: [f32; 2],
-}
-
-impl PoolVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
-        0 => Float32x3,
-        1 => Float32x3,
-        2 => Float32x2,
-    ];
-
-    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<PoolVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBS,
-        }
-    }
-}
 
 /// Main renderer
 pub struct Renderer {
@@ -469,7 +424,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &water_shader_module,
                 entry_point: "vs_main",
-                buffers: &[WaterVertex::desc()],
+                buffers: &[Vertex::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -521,7 +476,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &pool_shader_module,
                 entry_point: "vs_main",
-                buffers: &[PoolVertex::desc()],
+                buffers: &[Vertex::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -574,7 +529,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &caustics_shader_module,
                 entry_point: "vs_main",
-                buffers: &[WaterVertex::desc()],
+                buffers: &[Vertex::desc()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -628,7 +583,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &sphere_shader_module,
                 entry_point: "vs_main",
-                buffers: &[PoolVertex::desc()], // Reuse PoolVertex layout
+                buffers: &[Vertex::desc()], // Reuse unified Vertex layout
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -692,13 +647,7 @@ impl Renderer {
         // Create sphere mesh using Sphere shape
         let mesh_params = crate::core::shape::MeshParams::default();
         let sphere_shape = crate::shapes::Sphere::new();
-        let (sphere_verts, sphere_indices) = sphere_shape.generate_mesh(&mesh_params);
-        // Convert to PoolVertex (for reuse)
-        let sphere_vertices: Vec<PoolVertex> = sphere_verts.into_iter().map(|v| PoolVertex {
-            position: v.position,
-            normal: v.normal,
-            uv: v.uv,
-        }).collect();
+        let (sphere_vertices, sphere_indices) = sphere_shape.generate_mesh(&mesh_params);
 
         let sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sphere Vertex Buffer"),
@@ -763,30 +712,11 @@ impl Renderer {
         };
         
         let (vertices, indices) = if let Some(shape) = registry.get(shape_name) {
-            
-            let (shape_verts, shape_indices) = shape.generate_mesh(&params);
-            
-            // Convert ShapeVertex to PoolVertex (layouts are identical)
-            // In a real refactor we should unify these types, but for now we recast
-            // to keep the renderer code minimal
-            let pool_verts: Vec<PoolVertex> = shape_verts.into_iter().map(|v| PoolVertex {
-                position: v.position,
-                normal: v.normal,
-                uv: v.uv,
-            }).collect();
-            
-            (pool_verts, shape_indices)
+            shape.generate_mesh(&params)
         } else {
             // Fallback to sphere if not found
             let sphere = crate::shapes::Sphere::new();
-            let (shape_verts, shape_indices) = sphere.generate_mesh(&params);
-            
-            let pool_verts: Vec<PoolVertex> = shape_verts.into_iter().map(|v| PoolVertex {
-                position: v.position,
-                normal: v.normal,
-                uv: v.uv,
-            }).collect();
-            (pool_verts, shape_indices)
+            sphere.generate_mesh(&params)
         };
 
         self.sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -886,7 +816,7 @@ impl Renderer {
         (texture, view)
     }
 
-    fn create_water_mesh(resolution: u32) -> (Vec<WaterVertex>, Vec<u32>) {
+    fn create_water_mesh(resolution: u32) -> (Vec<Vertex>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
@@ -894,8 +824,9 @@ impl Renderer {
             for x in 0..=resolution {
                 let u = x as f32 / resolution as f32;
                 let v = y as f32 / resolution as f32;
-                vertices.push(WaterVertex {
+                vertices.push(Vertex {
                     position: [u * 2.0 - 1.0, 0.0, v * 2.0 - 1.0],
+                    normal: [0.0, 1.0, 0.0],
                     uv: [u, v],
                 });
             }
@@ -919,7 +850,7 @@ impl Renderer {
 
 
     /// Create a frustum (truncated pyramid) pool mesh - narrower at bottom
-    fn create_frustum_pool_mesh(bottom_scale: f32) -> (Vec<PoolVertex>, Vec<u32>) {
+    fn create_frustum_pool_mesh(bottom_scale: f32) -> (Vec<Vertex>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         
@@ -929,10 +860,10 @@ impl Renderer {
         
         // Bottom face (smaller square)
         let bottom_verts = [
-            PoolVertex { position: [-bot, -1.0, -bot], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] },
-            PoolVertex { position: [ bot, -1.0, -bot], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0] },
-            PoolVertex { position: [ bot, -1.0,  bot], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0] },
-            PoolVertex { position: [-bot, -1.0,  bot], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
+            Vertex { position: [-bot, -1.0, -bot], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] },
+            Vertex { position: [ bot, -1.0, -bot], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0] },
+            Vertex { position: [ bot, -1.0,  bot], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0] },
+            Vertex { position: [-bot, -1.0,  bot], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
         ];
         vertices.extend_from_slice(&bottom_verts);
         indices.extend_from_slice(&[0, 2, 3, 0, 1, 2]);
@@ -951,10 +882,10 @@ impl Renderer {
         
         let mut idx = 4u32; // Start after bottom face vertices
         for (tl, tr, br, bl, normal) in wall_data {
-            vertices.push(PoolVertex { position: tl, normal, uv: [0.0, 0.0] });
-            vertices.push(PoolVertex { position: tr, normal, uv: [1.0, 0.0] });
-            vertices.push(PoolVertex { position: br, normal, uv: [1.0, 1.0] });
-            vertices.push(PoolVertex { position: bl, normal, uv: [0.0, 1.0] });
+            vertices.push(Vertex { position: tl, normal, uv: [0.0, 0.0] });
+            vertices.push(Vertex { position: tr, normal, uv: [1.0, 0.0] });
+            vertices.push(Vertex { position: br, normal, uv: [1.0, 1.0] });
+            vertices.push(Vertex { position: bl, normal, uv: [0.0, 1.0] });
             
             indices.extend_from_slice(&[idx, idx+2, idx+1, idx, idx+3, idx+2]);
             idx += 4;
@@ -964,7 +895,7 @@ impl Renderer {
     }
     
     /// Create a cylindrical pool mesh
-    fn create_cylinder_pool_mesh(segments: u32) -> (Vec<PoolVertex>, Vec<u32>) {
+    fn create_cylinder_pool_mesh(segments: u32) -> (Vec<Vertex>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         
@@ -973,7 +904,7 @@ impl Renderer {
         // Bottom face (circle) - center vertex + ring
         // Normal points UP (toward inside of pool, since we view from above)
         let center_idx = 0u32;
-        vertices.push(PoolVertex { 
+        vertices.push(Vertex { 
             position: [0.0, -1.0, 0.0], 
             normal: [0.0, 1.0, 0.0],  // Changed to point up (inside pool)
             uv: [0.5, 0.5] 
@@ -985,7 +916,7 @@ impl Renderer {
             let x = angle.cos() * radius;
             let z = angle.sin() * radius;
             
-            vertices.push(PoolVertex {
+            vertices.push(Vertex {
                 position: [x, -1.0, z],
                 normal: [0.0, 1.0, 0.0],  // Point up (inside pool)
                 uv: [0.5 + x * 0.5, 0.5 + z * 0.5],
@@ -1013,14 +944,14 @@ impl Renderer {
             let nz = -angle.sin();
             
             // Bottom vertex of wall
-            vertices.push(PoolVertex {
+            vertices.push(Vertex {
                 position: [x, -1.0, z],
                 normal: [nx, 0.0, nz],
                 uv: [u, 1.0],
             });
             
             // Top vertex of wall
-            vertices.push(PoolVertex {
+            vertices.push(Vertex {
                 position: [x, 1.0, z],
                 normal: [nx, 0.0, nz],
                 uv: [u, 0.0],
@@ -1065,17 +996,17 @@ impl Renderer {
     }
 
     /// Create a cube pool mesh (open-top container)
-    fn create_cube_pool_mesh() -> (Vec<PoolVertex>, Vec<u32>) {
+    fn create_cube_pool_mesh() -> (Vec<Vertex>, Vec<u32>) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
         
         // Pool is a unit cube from -1 to 1, open on top
         // Bottom face (Y-)
         let bottom_verts = [
-            PoolVertex { position: [-1.0, -1.0, -1.0], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] },
-            PoolVertex { position: [ 1.0, -1.0, -1.0], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0] },
-            PoolVertex { position: [ 1.0, -1.0,  1.0], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0] },
-            PoolVertex { position: [-1.0, -1.0,  1.0], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
+            Vertex { position: [-1.0, -1.0, -1.0], normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0] },
+            Vertex { position: [ 1.0, -1.0, -1.0], normal: [0.0, 1.0, 0.0], uv: [1.0, 0.0] },
+            Vertex { position: [ 1.0, -1.0,  1.0], normal: [0.0, 1.0, 0.0], uv: [1.0, 1.0] },
+            Vertex { position: [-1.0, -1.0,  1.0], normal: [0.0, 1.0, 0.0], uv: [0.0, 1.0] },
         ];
         vertices.extend_from_slice(&bottom_verts);
         indices.extend_from_slice(&[0, 2, 3, 0, 1, 2]); // CW to be visible with Front culling
@@ -1094,10 +1025,10 @@ impl Renderer {
         
         let mut idx = 4u32;
         for (tl, tr, br, bl, normal) in wall_data {
-            vertices.push(PoolVertex { position: tl, normal, uv: [0.0, 0.0] });
-            vertices.push(PoolVertex { position: tr, normal, uv: [1.0, 0.0] });
-            vertices.push(PoolVertex { position: br, normal, uv: [1.0, 1.0] });
-            vertices.push(PoolVertex { position: bl, normal, uv: [0.0, 1.0] });
+            vertices.push(Vertex { position: tl, normal, uv: [0.0, 0.0] });
+            vertices.push(Vertex { position: tr, normal, uv: [1.0, 0.0] });
+            vertices.push(Vertex { position: br, normal, uv: [1.0, 1.0] });
+            vertices.push(Vertex { position: bl, normal, uv: [0.0, 1.0] });
             
             indices.extend_from_slice(&[idx, idx+2, idx+1, idx, idx+3, idx+2]); // CCW from inside
             idx += 4;

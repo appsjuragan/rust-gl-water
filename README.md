@@ -6,6 +6,9 @@ A high-performance, feature-rich port of the classic [WebGL Water](http://madeby
 
 ## 🌟 Features
 
+### 💧 Polished Experience
+- **Custom App Icon**: Features a generated water-themed icon for the application window.
+
 ### 🌊 Advanced Water Simulation
 - **Real-time Wave Equation**: High-fidelity simulation using a 9-point Laplacian on a 512x512 GPU texture grid.
 - **Dynamic Caustics**: Real-time light refraction patterns on the pool floor that react to every ripple and object.
@@ -55,11 +58,11 @@ The project leverages **wgpu** for cross-platform GPU acceleration and features 
 
 ```
 src/
-├── core/            # Core abstractions (Shape, Material, Physics traits)
+├── core/            # Core abstractions (Shape, Material, Vertex, Constants, Enums)
 ├── shapes/          # Shape implementations (Sphere, Torus, Cube, etc.)
-├── physics.rs       # Physics engine (Buoyancy, Collision, Ripples)
+├── physics.rs       # Physics engine (RigidBody dynamics, Collision)
 ├── water.rs         # GPU ping-pong wave simulation
-├── renderer.rs      # Main render pipeline
+├── renderer.rs      # Unified rendering pipeline using shared Vertex layout
 ├── app.rs           # Application state & event loop
 └── shaders/         # WGSL shaders (externalized)
 ```

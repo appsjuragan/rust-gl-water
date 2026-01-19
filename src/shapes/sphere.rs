@@ -1,6 +1,7 @@
 //! Sphere shape implementation
 
-use crate::core::shape::{Shape, ShapeParams, MeshParams, ShapeVertex};
+use crate::core::shape::{Shape, ShapeParams, MeshParams};
+use crate::core::geometry::Vertex;
 use glam::Vec3;
 use std::f32::consts::PI;
 
@@ -21,7 +22,7 @@ impl Shape for Sphere {
         point.length() - params.radius
     }
 
-    fn generate_mesh(&self, params: &MeshParams) -> (Vec<ShapeVertex>, Vec<u32>) {
+    fn generate_mesh(&self, params: &MeshParams) -> (Vec<Vertex>, Vec<u32>) {
         let radius = params.radius;
         let segments = params.subdivisions;
 
@@ -40,7 +41,7 @@ impl Shape for Sphere {
                 let y = cos_theta;
                 let z = sin_theta * sin_phi;
 
-                vertices.push(ShapeVertex {
+                vertices.push(Vertex {
                     position: [x * radius, y * radius, z * radius],
                     normal: [x, y, z],
                     uv: [lon as f32 / segments as f32, lat as f32 / segments as f32],

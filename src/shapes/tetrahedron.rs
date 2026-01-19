@@ -1,6 +1,7 @@
 //! Tetrahedron shape implementation
 
-use crate::core::shape::{Shape, ShapeParams, MeshParams, ShapeVertex};
+use crate::core::shape::{Shape, ShapeParams, MeshParams};
+use crate::core::geometry::Vertex;
 use glam::Vec3;
 
 pub struct Tetrahedron;
@@ -26,7 +27,7 @@ impl Shape for Tetrahedron {
         (dist - 1.0) / 3.0f32.sqrt() * params.radius
     }
 
-    fn generate_mesh(&self, params: &MeshParams) -> (Vec<ShapeVertex>, Vec<u32>) {
+    fn generate_mesh(&self, params: &MeshParams) -> (Vec<Vertex>, Vec<u32>) {
         let s = params.radius / 3.0f32.sqrt();
         let v0 = Vec3::new(s, s, s);
         let v1 = Vec3::new(s, -s, -s);
@@ -39,18 +40,18 @@ impl Shape for Tetrahedron {
         let n3 = Self::face_normal(v1, v3, v2);
 
         let vertices = vec![
-            ShapeVertex { position: v0.to_array(), normal: n0.to_array(), uv: [0.0, 0.0] },
-            ShapeVertex { position: v1.to_array(), normal: n0.to_array(), uv: [1.0, 0.0] },
-            ShapeVertex { position: v2.to_array(), normal: n0.to_array(), uv: [0.5, 1.0] },
-            ShapeVertex { position: v0.to_array(), normal: n1.to_array(), uv: [0.0, 0.0] },
-            ShapeVertex { position: v2.to_array(), normal: n1.to_array(), uv: [1.0, 0.0] },
-            ShapeVertex { position: v3.to_array(), normal: n1.to_array(), uv: [0.5, 1.0] },
-            ShapeVertex { position: v0.to_array(), normal: n2.to_array(), uv: [0.0, 0.0] },
-            ShapeVertex { position: v3.to_array(), normal: n2.to_array(), uv: [1.0, 0.0] },
-            ShapeVertex { position: v1.to_array(), normal: n2.to_array(), uv: [0.5, 1.0] },
-            ShapeVertex { position: v1.to_array(), normal: n3.to_array(), uv: [0.0, 0.0] },
-            ShapeVertex { position: v3.to_array(), normal: n3.to_array(), uv: [1.0, 0.0] },
-            ShapeVertex { position: v2.to_array(), normal: n3.to_array(), uv: [0.5, 1.0] },
+            Vertex { position: v0.to_array(), normal: n0.to_array(), uv: [0.0, 0.0] },
+            Vertex { position: v1.to_array(), normal: n0.to_array(), uv: [1.0, 0.0] },
+            Vertex { position: v2.to_array(), normal: n0.to_array(), uv: [0.5, 1.0] },
+            Vertex { position: v0.to_array(), normal: n1.to_array(), uv: [0.0, 0.0] },
+            Vertex { position: v2.to_array(), normal: n1.to_array(), uv: [1.0, 0.0] },
+            Vertex { position: v3.to_array(), normal: n1.to_array(), uv: [0.5, 1.0] },
+            Vertex { position: v0.to_array(), normal: n2.to_array(), uv: [0.0, 0.0] },
+            Vertex { position: v3.to_array(), normal: n2.to_array(), uv: [1.0, 0.0] },
+            Vertex { position: v1.to_array(), normal: n2.to_array(), uv: [0.5, 1.0] },
+            Vertex { position: v1.to_array(), normal: n3.to_array(), uv: [0.0, 0.0] },
+            Vertex { position: v3.to_array(), normal: n3.to_array(), uv: [1.0, 0.0] },
+            Vertex { position: v2.to_array(), normal: n3.to_array(), uv: [0.5, 1.0] },
         ];
 
         (vertices, (0..12).collect())

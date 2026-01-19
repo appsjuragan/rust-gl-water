@@ -1,6 +1,7 @@
 //! Torus shape implementation
 
-use crate::core::shape::{Shape, ShapeParams, MeshParams, ShapeVertex};
+use crate::core::shape::{Shape, ShapeParams, MeshParams};
+use crate::core::geometry::Vertex;
 use glam::Vec3;
 use std::f32::consts::PI;
 
@@ -27,7 +28,7 @@ impl Shape for Torus {
         Vec3::new(q_x, point.y, 0.0).length() - minor_r
     }
 
-    fn generate_mesh(&self, params: &MeshParams) -> (Vec<ShapeVertex>, Vec<u32>) {
+    fn generate_mesh(&self, params: &MeshParams) -> (Vec<Vertex>, Vec<u32>) {
         let major_r = params.radius * Self::MAJOR_RATIO;
         let minor_r = params.radius * Self::MINOR_RATIO;
         let radial_seg = params.subdivisions;
@@ -46,7 +47,7 @@ impl Shape for Torus {
                 let v = j as f32 / tubular_seg as f32 * 2.0 * PI;
                 let (sin_v, cos_v) = v.sin_cos();
 
-                vertices.push(ShapeVertex {
+                vertices.push(Vertex {
                     position: [
                         (major_r + minor_r * cos_v) * cos_u,
                         minor_r * sin_v,

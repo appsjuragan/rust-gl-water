@@ -5,6 +5,8 @@
 use glam::{Quat, Vec3};
 use std::sync::Arc;
 
+use crate::core::geometry::Vertex;
+
 #[derive(Clone, Debug)]
 pub struct ShapeParams {
     pub radius: f32,
@@ -39,18 +41,10 @@ impl Default for MeshParams {
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ShapeVertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    pub uv: [f32; 2],
-}
-
 pub trait Shape: Send + Sync {
     fn name(&self) -> &str;
     fn sdf(&self, point: Vec3, params: &ShapeParams) -> f32;
-    fn generate_mesh(&self, params: &MeshParams) -> (Vec<ShapeVertex>, Vec<u32>);
+    fn generate_mesh(&self, params: &MeshParams) -> (Vec<Vertex>, Vec<u32>);
     fn bounding_sphere(&self, params: &ShapeParams) -> (Vec3, f32);
     fn shader_intersection_code(&self) -> String;
     fn shader_sdf_code(&self) -> String;

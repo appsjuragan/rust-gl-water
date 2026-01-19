@@ -6,7 +6,7 @@ use winit::{event::WindowEvent, window::Window};
 use std::sync::Arc;
 
 use crate::core::enums::{ShapeType, TextureType, PoolShapeType, Backend};
-use crate::core::constants::{DEFAULT_OBJECT_COUNT, DEFAULT_LIGHT_COLOR};
+use crate::core::constants::DEFAULT_OBJECT_COUNT;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {

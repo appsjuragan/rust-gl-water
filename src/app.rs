@@ -9,7 +9,7 @@ use winit::{
     dpi::PhysicalSize,
     event::{ElementState, MouseButton, WindowEvent},
     event_loop::EventLoop,
-    window::Window,
+    window::{Icon, Window},
 };
 
 use crate::camera::Camera;
@@ -628,15 +628,36 @@ fn rand_float() -> f32 {
     (seed.wrapping_mul(1103515245).wrapping_add(12345) % 1000) as f32 / 1000.0
 }
 
+/// Load the application icon from assets/app.ico
+fn load_icon() -> Option<Icon> {
+    // Try to load icon from assets directory
+    let icon_path = std::path::Path::new("assets/app.ico");
+    
+    if let Ok(icon_image) = image::open(icon_path) {
+        let rgba = icon_image.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let rgba_data = rgba.into_raw();
+        
+        Icon::from_rgba(rgba_data, width, height).ok()
+    } else {
+        log::warn!("Could not load application icon from {:?}", icon_path);
+        None
+    }
+}
+
 impl ApplicationHandler for Application {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         if self.window.is_some() {
             return;
         }
 
+        // Load window icon
+        let icon = load_icon();
+        
         let window_attrs = Window::default_attributes()
             .with_title(WINDOW_TITLE)
-            .with_inner_size(PhysicalSize::new(600, 600));
+            .with_inner_size(PhysicalSize::new(600, 600))
+            .with_window_icon(icon);
 
         let window = Arc::new(event_loop.create_window(window_attrs).expect("Failed to create window"));
         

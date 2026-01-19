@@ -3,6 +3,9 @@
 //! A port of the WebGL2 Water simulation to Rust using wgpu.
 //! Original: https://github.com/idootop/webgl2-water
 
+// Hide console in release mode on Windows
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 // New architecture modules
 mod core;
 mod shapes;
