@@ -23,15 +23,14 @@ pub struct CommonUniforms {
     pub wall_height: f32,
     pub pool_size: [f32; 2],
     pub light_dir: [f32; 4],
-    pub sphere_centers: [[f32; 4]; 10],
-    pub sphere_rotations: [[f32; 4]; 10],
     pub sphere_radius: f32,
     pub time: f32,
     pub shape_type: i32,
     pub texture_type: i32,
     pub object_count: i32,
     pub pool_shape: i32,
-    pub _padding: [f32; 2],
+    pub enable_gi: i32,
+    pub enable_raytracing: i32,
     pub light_color: [f32; 4],
 }
 
@@ -42,15 +41,14 @@ impl Default for CommonUniforms {
             wall_height: 0.4,
             pool_size: [1.0, 1.0],
             light_dir: [-0.577, 0.577, 0.577, 0.0],
-            sphere_centers: [[0.0; 4]; 10],
-            sphere_rotations: [[0.0, 0.0, 0.0, 1.0]; 10],
             sphere_radius: 0.25,
             time: 0.0,
             shape_type: 0,
             texture_type: 1,
             object_count: 5,
             pool_shape: 0,
-            _padding: [0.0; 2],
+            enable_gi: 1,
+            enable_raytracing: 1,
             light_color: [1.0, 1.0, 1.0, 1.0],
         }
     }
@@ -149,6 +147,9 @@ pub struct Renderer {
     sphere_vertex_buffer: wgpu::Buffer,
     sphere_index_buffer: wgpu::Buffer,
     sphere_index_count: u32,
+    
+    sphere_centers_buffer: wgpu::Buffer,
+    sphere_rotations_buffer: wgpu::Buffer,
 
     // Light direction
     pub light_dir: Vec3,
@@ -189,6 +190,20 @@ impl Renderer {
             label: Some("Common Uniform Buffer"),
             contents: bytemuck::cast_slice(&[common_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let sphere_centers_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Sphere Centers Buffer"),
+            size: (std::mem::size_of::<[f32; 4]>() * 64) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let sphere_rotations_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Sphere Rotations Buffer"),
+            size: (std::mem::size_of::<[f32; 4]>() * 64) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
         // Create default textures
@@ -250,6 +265,26 @@ impl Renderer {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
             });
 
@@ -264,6 +299,14 @@ impl Renderer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: common_uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: sphere_centers_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: sphere_rotations_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -344,7 +387,6 @@ impl Renderer {
                 ],
             });
 
-        // Caustics bind group layout
         let caustics_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("Caustics Bind Group Layout"),
@@ -361,6 +403,36 @@ impl Renderer {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
                         visibility: wgpu::ShaderStages::VERTEX,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -370,7 +442,7 @@ impl Renderer {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
-                        binding: 2,
+                        binding: 5,
                         visibility: wgpu::ShaderStages::VERTEX,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
@@ -670,6 +742,8 @@ impl Renderer {
             sphere_vertex_buffer,
             sphere_index_buffer,
             sphere_index_count: sphere_indices.len() as u32,
+            sphere_centers_buffer,
+            sphere_rotations_buffer,
             light_dir,
             pool_width: 2.0,
             pool_length: 2.0,
@@ -1048,6 +1122,8 @@ impl Renderer {
         texture_type: i32,
         light_color: [f32; 3],
         pool_shape: i32,
+        enable_gi: bool,
+        enable_raytracing: bool,
     ) {
         self.camera_uniform.update(camera);
         queue.write_buffer(
@@ -1057,9 +1133,9 @@ impl Renderer {
         );
 
         // Populate centers and rotations
-        let mut centers = [[0.0f32; 4]; 10];
-        let mut rotations = [[0.0f32; 4]; 10];
-        let count = objects.len().min(10);
+        let mut centers = [[0.0f32; 4]; 64];
+        let mut rotations = [[0.0f32; 4]; 64];
+        let count = objects.len().min(64);
         for i in 0..count {
             centers[i] = [objects[i].center.x, objects[i].center.y, objects[i].center.z, 0.0];
             rotations[i] = [objects[i].rotation.x, objects[i].rotation.y, objects[i].rotation.z, objects[i].rotation.w];
@@ -1069,8 +1145,17 @@ impl Renderer {
         self.common_uniform.wall_height = self.wall_height;
         self.common_uniform.pool_size = [self.pool_width / 2.0, self.pool_length / 2.0];
         self.common_uniform.light_dir = [self.light_dir.x, self.light_dir.y, self.light_dir.z, 0.0];
-        self.common_uniform.sphere_centers = centers;
-        self.common_uniform.sphere_rotations = rotations;
+        
+        queue.write_buffer(
+            &self.sphere_centers_buffer,
+            0,
+            bytemuck::cast_slice(&centers),
+        );
+        queue.write_buffer(
+            &self.sphere_rotations_buffer,
+            0,
+            bytemuck::cast_slice(&rotations),
+        );
         self.common_uniform.sphere_radius = sphere_radius;
         self.common_uniform.time = time;
         self.common_uniform.shape_type = shape_type;
@@ -1078,6 +1163,8 @@ impl Renderer {
         self.common_uniform.object_count = count as i32;
         self.common_uniform.light_color = [light_color[0], light_color[1], light_color[2], 1.0];
         self.common_uniform.pool_shape = pool_shape;
+        self.common_uniform.enable_gi = if enable_gi { 1 } else { 0 };
+        self.common_uniform.enable_raytracing = if enable_raytracing { 1 } else { 0 };
 
         // self.sphere_center is no longer tracked per object in Renderer struct
         self.sphere_radius = sphere_radius;
@@ -1103,14 +1190,26 @@ impl Renderer {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: self.common_uniform_buffer.as_entire_binding(),
+                    resource: self.camera_uniform_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(water.current_texture_view()),
+                    resource: self.common_uniform_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
+                    resource: self.sphere_centers_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: self.sphere_rotations_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(water.current_texture_view()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
                     resource: wgpu::BindingResource::Sampler(water.sampler()),
                 },
             ],

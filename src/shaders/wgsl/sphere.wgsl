@@ -1,10 +1,3 @@
-struct CameraUniforms {
-    view_proj: mat4x4<f32>,
-    view: mat4x4<f32>,
-    proj: mat4x4<f32>,
-    eye: vec4<f32>,
-}
-
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
@@ -19,9 +12,6 @@ struct VertexOutput {
     @location(3) rotation: vec4<f32>,
     @location(4) @interpolate(flat) instance_index: u32,
 }
-
-@group(0) @binding(0) var<uniform> camera: CameraUniforms;
-@group(0) @binding(1) var<uniform> uniforms: CommonUniforms;
 
 @group(1) @binding(0) var water_texture: texture_2d<f32>;
 @group(1) @binding(1) var water_sampler: sampler;
@@ -39,19 +29,8 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     
-    var center: vec3<f32>;
-    var rotation: vec4<f32>;
-    
-    if (instance_index == 0u) { center = uniforms.sphere_centers[0].xyz; rotation = uniforms.sphere_rotations[0]; }
-    else if (instance_index == 1u) { center = uniforms.sphere_centers[1].xyz; rotation = uniforms.sphere_rotations[1]; }
-    else if (instance_index == 2u) { center = uniforms.sphere_centers[2].xyz; rotation = uniforms.sphere_rotations[2]; }
-    else if (instance_index == 3u) { center = uniforms.sphere_centers[3].xyz; rotation = uniforms.sphere_rotations[3]; }
-    else if (instance_index == 4u) { center = uniforms.sphere_centers[4].xyz; rotation = uniforms.sphere_rotations[4]; }
-    else if (instance_index == 5u) { center = uniforms.sphere_centers[5].xyz; rotation = uniforms.sphere_rotations[5]; }
-    else if (instance_index == 6u) { center = uniforms.sphere_centers[6].xyz; rotation = uniforms.sphere_rotations[6]; }
-    else if (instance_index == 7u) { center = uniforms.sphere_centers[7].xyz; rotation = uniforms.sphere_rotations[7]; }
-    else if (instance_index == 8u) { center = uniforms.sphere_centers[8].xyz; rotation = uniforms.sphere_rotations[8]; }
-    else { center = uniforms.sphere_centers[9].xyz; rotation = uniforms.sphere_rotations[9]; }
+    let center = sphere_centers[instance_index].xyz;
+    let rotation = sphere_rotations[instance_index];
     
     let radius = uniforms.sphere_radius;
     
@@ -207,17 +186,7 @@ fn fs_main(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @location
     
     if (length(refract_dir_in) > 0.001 && is_transparent) {
         // Use instance_index to get the correct center
-        var center: vec3<f32>;
-        if (in.instance_index == 0u) { center = uniforms.sphere_centers[0].xyz; }
-        else if (in.instance_index == 1u) { center = uniforms.sphere_centers[1].xyz; }
-        else if (in.instance_index == 2u) { center = uniforms.sphere_centers[2].xyz; }
-        else if (in.instance_index == 3u) { center = uniforms.sphere_centers[3].xyz; }
-        else if (in.instance_index == 4u) { center = uniforms.sphere_centers[4].xyz; }
-        else if (in.instance_index == 5u) { center = uniforms.sphere_centers[5].xyz; }
-        else if (in.instance_index == 6u) { center = uniforms.sphere_centers[6].xyz; }
-        else if (in.instance_index == 7u) { center = uniforms.sphere_centers[7].xyz; }
-        else if (in.instance_index == 8u) { center = uniforms.sphere_centers[8].xyz; }
-        else { center = uniforms.sphere_centers[9].xyz; }
+        let center = sphere_centers[in.instance_index].xyz;
         
         let rotation = in.rotation;
         let inv_rotation = vec4<f32>(-rotation.xyz, rotation.w);

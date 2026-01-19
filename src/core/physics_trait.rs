@@ -1,12 +1,10 @@
 //! Physics abstraction traits
-//!
-//! Defines the core physics interfaces for collision detection and buoyancy calculation
+
+#![allow(dead_code)]
 
 use glam::{Quat, Vec3};
 use crate::core::shape::{Shape, ShapeParams};
 
-/// State of a physics object
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub struct PhysicsState {
     pub position: Vec3,
@@ -28,8 +26,6 @@ impl Default for PhysicsState {
     }
 }
 
-/// Information about a collision between two objects
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct CollisionInfo {
     pub normal: Vec3,
@@ -37,8 +33,6 @@ pub struct CollisionInfo {
     pub contact_point: Vec3,
 }
 
-/// Pool shape types for collision detection
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PoolType {
     Box { half_width: f32, half_length: f32 },
@@ -46,8 +40,6 @@ pub enum PoolType {
     Frustum { top_scale: f32, bottom_scale: f32 },
 }
 
-/// Trait for collision detection
-#[allow(dead_code)]
 pub trait Collider: Send + Sync {
     fn collide_with_box(
         &self,
@@ -71,6 +63,8 @@ pub trait Collider: Send + Sync {
         state: &mut PhysicsState,
         top_scale: f32,
         bottom_scale: f32,
+        y_min: f32,
+        y_max: f32,
         shape: &dyn Shape,
         shape_params: &ShapeParams,
     );
@@ -100,14 +94,64 @@ pub trait Collider: Send + Sync {
                 self.collide_with_cylinder(state, radius, shape, shape_params);
             }
             PoolType::Frustum { top_scale, bottom_scale } => {
-                self.collide_with_frustum(state, top_scale, bottom_scale, shape, shape_params);
+                // Default implementation assumes standard pool depth/height if not provided in PoolType
+                // But PoolType::Frustum doesn't have y_min/y_max.
+                // We'll assume -1.0 to 0.4 for now in this default impl, but implementations should override or we should update PoolType.
+                self.collide_with_frustum(state, top_scale, bottom_scale, -1.0, 0.4, shape, shape_params);
             }
+        }
+    }
+    
+    /// Collide with floor at given y level. Returns true if contact was made.
+    fn collide_with_floor(
+        &self,
+        state: &mut PhysicsState,
+        floor_y: f32,
+        shape: &dyn Shape,
+        shape_params: &ShapeParams,
+        dt: f32,
+    ) -> bool {
+        let (_, radius) = shape.bounding_sphere(shape_params);
+        let min_y = floor_y + radius;
+        
+        if state.position.y < min_y {
+            state.position.y = min_y;
+            
+            // Bounce only if falling fast
+            if state.velocity.y < -0.05 {
+                state.velocity.y = -state.velocity.y * 0.3;
+            } else {
+                state.velocity.y = 0.0;
+            }
+            
+            // Friction
+            let v_horiz = Vec3::new(state.velocity.x, 0.0, state.velocity.z);
+            let horiz_speed = v_horiz.length();
+            if horiz_speed > 0.01 {
+                let friction = 0.4;
+                let friction_decel = friction * 9.81 * dt;
+                if horiz_speed < friction_decel {
+                    state.velocity.x = 0.0;
+                    state.velocity.z = 0.0;
+                } else {
+                    let friction_dir = -v_horiz.normalize();
+                    state.velocity += friction_dir * friction_decel;
+                }
+            } else {
+                state.velocity.x = 0.0;
+                state.velocity.z = 0.0;
+            }
+            
+            // Angular damping
+            state.angular_velocity *= 0.9;
+            
+            true
+        } else {
+            false
         }
     }
 }
 
-/// Trait for buoyancy force calculation
-#[allow(dead_code)]
 pub trait BuoyancyCalculator: Send + Sync {
     fn calculate_buoyancy(
         &self,
@@ -128,11 +172,8 @@ pub trait BuoyancyCalculator: Send + Sync {
         submerged_fraction: f32,
         drag_coefficient: f32,
     ) -> Vec3 {
-        let velocity_magnitude = state.velocity.length();
-        if velocity_magnitude < 1e-6 {
-            return Vec3::ZERO;
-        }
-        let drag_strength = drag_coefficient * submerged_fraction * velocity_magnitude;
-        -state.velocity.normalize() * drag_strength
+        let speed = state.velocity.length();
+        if speed < 1e-6 { return Vec3::ZERO; }
+        -state.velocity.normalize() * drag_coefficient * submerged_fraction * speed
     }
 }

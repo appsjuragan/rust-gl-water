@@ -1,20 +1,14 @@
 //! Core shape abstraction trait
-//!
-//! This module defines the fundamental `Shape` trait that all geometric shapes must implement.
-//! Shapes provide unified interface for rendering, physics, and shader code generation.
+
+#![allow(dead_code)]
 
 use glam::{Quat, Vec3};
 use std::sync::Arc;
 
-/// Parameters for shape SDF evaluation
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct ShapeParams {
-    /// Radius or characteristic size of shape
     pub radius: f32,
-    /// Rotation quaternion
     pub rotation: Quat,
-    /// Scale factors (currently uniform via radius)
     pub scale: Vec3,
 }
 
@@ -28,15 +22,10 @@ impl Default for ShapeParams {
     }
 }
 
-/// Parameters for mesh generation
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct MeshParams {
-    /// Radius or characteristic size
     pub radius: f32,
-    /// Number of subdivisions/segments
     pub subdivisions: u32,
-    /// Additional subdivisions for secondary dimension (e.g., tubular segments for torus)
     pub subdivisions_secondary: Option<u32>,
 }
 
@@ -50,7 +39,6 @@ impl Default for MeshParams {
     }
 }
 
-/// Vertex format for shape meshes
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ShapeVertex {
@@ -59,8 +47,6 @@ pub struct ShapeVertex {
     pub uv: [f32; 2],
 }
 
-/// Core trait for all geometric shapes
-#[allow(dead_code)]
 pub trait Shape: Send + Sync {
     fn name(&self) -> &str;
     fn sdf(&self, point: Vec3, params: &ShapeParams) -> f32;
@@ -73,16 +59,12 @@ pub trait Shape: Send + Sync {
     fn collider(&self) -> Box<dyn crate::core::physics_trait::Collider>;
 }
 
-/// Type alias for boxed shape trait object
 pub type BoxedShape = Arc<dyn Shape>;
 
-/// Shape registry for runtime shape lookup
-#[allow(dead_code)]
 pub struct ShapeRegistry {
     shapes: Vec<BoxedShape>,
 }
 
-#[allow(dead_code)]
 impl ShapeRegistry {
     pub fn new() -> Self {
         Self { shapes: Vec::new() }
@@ -100,17 +82,10 @@ impl ShapeRegistry {
         self.shapes.iter().map(|s| s.name().to_string()).collect()
     }
 
-    pub fn len(&self) -> usize {
-        self.shapes.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.shapes.is_empty()
-    }
+    pub fn len(&self) -> usize { self.shapes.len() }
+    pub fn is_empty(&self) -> bool { self.shapes.is_empty() }
 }
 
 impl Default for ShapeRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }

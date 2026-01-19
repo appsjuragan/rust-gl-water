@@ -1,4 +1,4 @@
-//! Shape implementations module
+//! Shape implementations
 
 #![allow(dead_code)]
 
@@ -15,14 +15,11 @@ pub use tetrahedron::Tetrahedron;
 use crate::core::shape::ShapeRegistry;
 use std::sync::Arc;
 
-/// Create and populate a shape registry with all built-in shapes
 pub fn create_default_registry() -> ShapeRegistry {
     let mut registry = ShapeRegistry::new();
-    
     registry.register(Arc::new(Sphere::new()));
     registry.register(Arc::new(Cube::new()));
     registry.register(Arc::new(Torus::new()));
     registry.register(Arc::new(Tetrahedron::new()));
-    
     registry
 }

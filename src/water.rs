@@ -64,6 +64,7 @@ struct UpdateUniforms {
 struct ObjectTransition {
     old_center: [f32; 4],
     new_center: [f32; 4],
+    rotation: [f32; 4],
     strength: f32,
     _padding: [f32; 3],
 }
@@ -71,7 +72,7 @@ struct ObjectTransition {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct SphereVolumeUniforms {
-    pub objects: [ObjectTransition; 10],
+    pub objects: [ObjectTransition; 64],
     pub radius: f32,
     pub _pad0: f32, // Pad to 8-byte alignment for pool_size (vec2)
     pub pool_size: [f32; 2],
@@ -163,9 +164,10 @@ impl Water {
                 objects: [ObjectTransition {
                     old_center: [0.0; 4],
                     new_center: [0.0; 4],
+                    rotation: [0.0; 4],
                     strength: 0.0,
                     _padding: [0.0; 3],
-                }; 10],
+                }; 64],
                 radius: 0.25,
                 _pad0: 0.0,
                 pool_size: [pool_width, pool_length],
@@ -501,11 +503,12 @@ impl Water {
         let mut object_transitions = [ObjectTransition {
             old_center: [0.0; 4],
             new_center: [0.0; 4],
+            rotation: [0.0; 4],
             strength: 0.0,
             _padding: [0.0; 3],
-        }; 10];
+        }; 64];
 
-        let count = objects.len().min(10);
+        let count = objects.len().min(64);
         for i in 0..count {
             let obj = &objects[i];
             let displacement = (obj.center - obj.old_center).length();
@@ -515,6 +518,7 @@ impl Water {
             object_transitions[i] = ObjectTransition {
                 old_center: [obj.old_center.x / scale_x, obj.old_center.y, obj.old_center.z / scale_z, 0.0],
                 new_center: [obj.center.x / scale_x, obj.center.y, obj.center.z / scale_z, 0.0],
+                rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z, obj.rotation.w],
                 strength: dynamic_strength,
                 _padding: [0.0; 3],
             };

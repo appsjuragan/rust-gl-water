@@ -44,20 +44,11 @@ struct GfxState {
 }
 
 impl GfxState {
-    async fn new(window: Arc<Window>, backend: Backend) -> Self {
+    async fn new(window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
-        // Convert Backend enum to wgpu::Backends
-        let backends = match backend {
-            Backend::Auto => wgpu::Backends::PRIMARY,
-            Backend::Vulkan => wgpu::Backends::VULKAN,
-            Backend::OpenGL => wgpu::Backends::GL,
-            // Note: wgpu doesn't have separate DX11, both map to DX12
-            Backend::Dx11 | Backend::Dx12 => wgpu::Backends::DX12,
-        };
-
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends,
+            backends: wgpu::Backends::all(),
             ..Default::default()
         });
 
@@ -225,6 +216,27 @@ impl Application {
         // Update physics
         self.physics.update(dt, water_height, self.input.mouse_point, self.dragged_object_index);
 
+        // Process physics ripples
+        if !self.physics.ripples.is_empty() {
+             let mut encoder = gfx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Ripple Encoder"),
+            });
+            
+            for ripple in &self.physics.ripples {
+                 gfx.water.add_drop(
+                    &gfx.device,
+                    &gfx.queue,
+                    &mut encoder,
+                    ripple.x,
+                    ripple.z,
+                    ripple.radius,
+                    ripple.strength,
+                );
+            }
+            
+            gfx.queue.submit(Some(encoder.finish()));
+        }
+
         // Handle sphere dragging
         if let Some(delta) = self.input.get_sphere_drag_delta(self.camera.view_projection_matrix().inverse()) {
             if let Some(idx) = self.dragged_object_index {
@@ -358,7 +370,7 @@ impl Application {
                         ui.horizontal(|ui| {
                             ui.vertical(|ui| {
                                 ui.label("Object Count:");
-                                ui.add(egui::Slider::new(&mut config.object_count, 1..=10));
+                                ui.add(egui::Slider::new(&mut config.object_count, 1..=50));
                             });
                             
                             ui.add_space(20.0);
@@ -387,6 +399,10 @@ impl Application {
                                ui.color_edit_button_srgba(&mut color_srgba);
                                config.light_color = [color_srgba.r(), color_srgba.g(), color_srgba.b()];
                                ui.label("color wheel");
+                               
+                               ui.add_space(10.0);
+                               ui.label("Intensity:");
+                               ui.add(egui::Slider::new(&mut config.light_intensity, 0.0..=5.0));
                            });
                            
                            ui.vertical(|ui| {
@@ -404,38 +420,37 @@ impl Application {
                                });
                            });
                         });
+                        
+                        ui.add_space(10.0);
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut config.enable_gi, "Enable Global Illumination");
+                            ui.add_space(20.0);
+                            ui.checkbox(&mut config.enable_raytracing, "Enable Ray Tracing");
+                        });
                          
                         ui.add_space(24.0);
                         ui.horizontal(|ui| {
-                            let available_width = ui.available_width();
-                            let button_width = 120.0;
-                            let spacing = 20.0;
-                            let total_width = button_width * 2.0 + spacing;
-                            let x_offset = (available_width - total_width).max(0.0) / 2.0;
-                            ui.add_space(x_offset);
-                            
-                            if ui.add_sized([button_width, 40.0], egui::Button::new("RESET")).clicked() {
-                                *config = RunConfig::default();
-                            }
-                            ui.add_space(spacing);
-                            if ui.add_sized([button_width, 40.0], egui::Button::new("RUN")).clicked() {
+                            if ui.button("Run Simulation").clicked() {
                                 run_clicked = true;
                             }
                         });
-                        ui.add_space(10.0);
                     });
             });
+            
+            gfx.queue.submit(Some(encoder.finish()));
+            output.present();
             
             if run_clicked {
                 self.state = AppState::Running;
                 
-                // Update Config Logic Inline
                 {
                     let config = &self.run_config;
                     self.physics.gravity = Vec3::new(0.0, -9.81 * config.gravity, 0.0);
                     self.physics.pool_shape = config.pool_shape;
                     
-                    // Set dimensions based on shape
+                    // Set material density based on texture
+                    self.physics.material_density = config.texture.density();
+                    
                     let (width, length) = match config.pool_shape {
                         PoolShape::Cuboid => (2.0, 3.0),
                         _ => (2.0, 2.0),
@@ -447,8 +462,8 @@ impl Application {
                     gfx.renderer.pool_length = length;
                     gfx.water.pool_width = width;
                     gfx.water.pool_length = length;
+                    self.physics.wall_height = gfx.renderer.wall_height;
                     
-                    // Reset object position and velocity
                     self.physics.reset_objects(config.object_count);
                     
                     let shape_name = match config.shape {
@@ -460,7 +475,6 @@ impl Application {
                     gfx.renderer.update_object_mesh(&gfx.device, shape_name);
                     self.physics.set_shape(shape_name);
                     
-                    // Update pool shape mesh
                     let pool_shape_name = match config.pool_shape {
                         PoolShape::Cube => "Cube",
                         PoolShape::Cuboid => "Cuboid",
@@ -476,6 +490,8 @@ impl Application {
                         c[2] as f32 / 255.0,
                         1.0
                     ];
+                    gfx.renderer.common_uniform.enable_gi = if config.enable_gi { 1 } else { 0 };
+                    gfx.renderer.common_uniform.enable_raytracing = if config.enable_raytracing { 1 } else { 0 };
                 }
 
                 // Initial Drops Logic Inline
@@ -494,9 +510,6 @@ impl Application {
                     gfx.queue.submit(Some(encoder.finish()));
                 }
             }
-            
-            gfx.queue.submit(Some(encoder.finish()));
-            output.present();
             
             return Ok(());
         }
@@ -520,6 +533,7 @@ impl Application {
         };
 
         let lc = self.run_config.light_color;
+        let intensity = self.run_config.light_intensity;
         
         let pool_shape_idx = match self.run_config.pool_shape {
             PoolShape::Cube | PoolShape::Cuboid => 0,
@@ -535,8 +549,14 @@ impl Application {
             self.time,
             shape_type,
             texture_type,
-            [lc[0] as f32 / 255.0, lc[1] as f32 / 255.0, lc[2] as f32 / 255.0],
+            [
+                (lc[0] as f32 / 255.0) * intensity,
+                (lc[1] as f32 / 255.0) * intensity,
+                (lc[2] as f32 / 255.0) * intensity
+            ],
             pool_shape_idx,
+            self.run_config.enable_gi,
+            self.run_config.enable_raytracing,
         );
 
         // Update FPS UI
@@ -616,8 +636,7 @@ impl ApplicationHandler for Application {
 
         let window = Arc::new(event_loop.create_window(window_attrs).expect("Failed to create window"));
         
-        let backend = self.run_config.backend;
-        let gfx = pollster::block_on(GfxState::new(window.clone(), backend));
+        let gfx = pollster::block_on(GfxState::new(window.clone()));
         
         self.window = Some(window.clone());
         self.gfx = Some(gfx);

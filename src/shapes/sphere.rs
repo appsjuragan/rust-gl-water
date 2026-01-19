@@ -4,25 +4,18 @@ use crate::core::shape::{Shape, ShapeParams, MeshParams, ShapeVertex};
 use glam::Vec3;
 use std::f32::consts::PI;
 
-/// Sphere shape
 pub struct Sphere;
 
 impl Sphere {
-    pub fn new() -> Self {
-        Self
-    }
+    pub fn new() -> Self { Self }
 }
 
 impl Default for Sphere {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl Shape for Sphere {
-    fn name(&self) -> &str {
-        "Sphere"
-    }
+    fn name(&self) -> &str { "Sphere" }
 
     fn sdf(&self, point: Vec3, params: &ShapeParams) -> f32 {
         point.length() - params.radius
@@ -30,48 +23,36 @@ impl Shape for Sphere {
 
     fn generate_mesh(&self, params: &MeshParams) -> (Vec<ShapeVertex>, Vec<u32>) {
         let radius = params.radius;
-        let lat_segments = params.subdivisions;
-        let lon_segments = params.subdivisions;
+        let segments = params.subdivisions;
 
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
+        let mut vertices = Vec::with_capacity(((segments + 1) * (segments + 1)) as usize);
+        let mut indices = Vec::with_capacity((segments * segments * 6) as usize);
 
-        // Generate vertices
-        for lat in 0..=lat_segments {
-            let theta = lat as f32 * PI / lat_segments as f32;
-            let sin_theta = theta.sin();
-            let cos_theta = theta.cos();
+        for lat in 0..=segments {
+            let theta = lat as f32 * PI / segments as f32;
+            let (sin_theta, cos_theta) = theta.sin_cos();
 
-            for lon in 0..=lon_segments {
-                let phi = lon as f32 * 2.0 * PI / lon_segments as f32;
-                let sin_phi = phi.sin();
-                let cos_phi = phi.cos();
+            for lon in 0..=segments {
+                let phi = lon as f32 * 2.0 * PI / segments as f32;
+                let (sin_phi, cos_phi) = phi.sin_cos();
 
                 let x = sin_theta * cos_phi;
                 let y = cos_theta;
                 let z = sin_theta * sin_phi;
 
-                let position = [x * radius, y * radius, z * radius];
-                let normal = [x, y, z]; // Normalized by construction
-                let uv = [lon as f32 / lon_segments as f32, lat as f32 / lat_segments as f32];
-
-                vertices.push(ShapeVertex { position, normal, uv });
+                vertices.push(ShapeVertex {
+                    position: [x * radius, y * radius, z * radius],
+                    normal: [x, y, z],
+                    uv: [lon as f32 / segments as f32, lat as f32 / segments as f32],
+                });
             }
         }
 
-        // Generate indices
-        for lat in 0..lat_segments {
-            for lon in 0..lon_segments {
-                let current = lat * (lon_segments + 1) + lon;
-                let next = current + lon_segments + 1;
-
-                indices.push(current);
-                indices.push(next);
-                indices.push(current + 1);
-
-                indices.push(current + 1);
-                indices.push(next);
-                indices.push(next + 1);
+        for lat in 0..segments {
+            for lon in 0..segments {
+                let current = lat * (segments + 1) + lon;
+                let next = current + segments + 1;
+                indices.extend_from_slice(&[current, next, current + 1, current + 1, next, next + 1]);
             }
         }
 
@@ -116,14 +97,11 @@ fn sdSphere(p: vec3<f32>, r: f32) -> f32 {
         let depth = water_height - center_y;
 
         if depth <= -r {
-            // Completely above water
             0.0
         } else if depth >= r {
-            // Completely submerged
             self.volume(params)
         } else {
-            // Partially submerged - use spherical cap formula
-            let h = r + depth; // Height of submerged cap
+            let h = r + depth;
             PI * h * h * (3.0 * r - h) / 3.0
         }
     }
