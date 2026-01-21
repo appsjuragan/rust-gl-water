@@ -61,7 +61,7 @@ fn volume_in_shape(center: vec3<f32>, rotation: vec4<f32>, uv: vec2<f32>, streng
     }
 
     let inv_rotation = vec4<f32>(-rotation.xyz, rotation.w);
-    let steps = 20;
+    let steps = 10;  // Reduced from 20 for GPU optimization
     let step_size = (displacement_uniforms.radius * 2.0) / f32(steps);
     var thickness = 0.0;
     var current_y = -displacement_uniforms.radius; 

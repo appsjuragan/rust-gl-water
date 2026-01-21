@@ -277,8 +277,8 @@ impl Application {
         });
 
         // Step simulation - with fixed DT we only need a small fixed number
-        // Using 6 steps per fixed update - balanced for speed and performance
-        for _ in 0..6 {
+        // Using 4 steps per fixed update - optimized for GPU performance
+        for _ in 0..4 {
             gfx.water.step_simulation(&gfx.device, &gfx.queue, &mut encoder);
         }
         gfx.water.update_normals(&gfx.device, &gfx.queue, &mut encoder);

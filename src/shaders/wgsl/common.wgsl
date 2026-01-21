@@ -68,6 +68,18 @@ fn get_shape_dist(p: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
     }
 }
 
+// Optimized normal calculation using tetrahedron technique (4 samples vs 6)
+fn get_shape_normal_fast(p: vec3<f32>, shape_type: i32, radius: f32) -> vec3<f32> {
+    let e = 0.001;
+    let k = vec2<f32>(1.0, -1.0);
+    return normalize(
+        k.xyy * get_shape_dist(p + k.xyy * e, shape_type, radius) +
+        k.yyx * get_shape_dist(p + k.yyx * e, shape_type, radius) +
+        k.yxy * get_shape_dist(p + k.yxy * e, shape_type, radius) +
+        k.xxx * get_shape_dist(p + k.xxx * e, shape_type, radius)
+    );
+}
+
 // Ray-primitive intersections
 fn intersect_sphere(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, radius: f32) -> f32 {
     let to_sphere = origin - center;
@@ -246,11 +258,12 @@ fn intersect_single_shape(origin: vec3<f32>, ray: vec3<f32>, center: vec3<f32>, 
     if (get_shape_dist(local_origin, shape_type, radius) < 0.0) {
         return 0.0;
     }
-    for (var i=0; i<64; i++) {
+    // Optimized: 32 iterations with relaxed threshold for GPU performance
+    for (var i=0; i<32; i++) {
         let p = local_origin + local_ray * t;
         let d = get_shape_dist(p, shape_type, radius);
-        if (d < 0.0005) { return t; }
-        t += d;
+        if (d < 0.001) { return t; }  // Relaxed threshold
+        t += d * 0.95;  // Slight over-stepping for faster convergence
         if (t > radius * 4.0) { return -1.0; }
     }
     return -1.0;
@@ -274,11 +287,12 @@ fn intersect_shape_any(origin: vec3<f32>, ray: vec3<f32>, uniforms: CommonUnifor
 
 fn get_exit_dist_shape(origin: vec3<f32>, ray: vec3<f32>, shape_type: i32, radius: f32) -> f32 {
     var t = 0.001;
-    for (var i = 0; i < 64; i++) {
+    // Optimized: 32 iterations for GPU performance
+    for (var i = 0; i < 32; i++) {
         let p = origin + ray * t;
         let d = get_shape_dist(p, shape_type, radius);
-        if (d > -0.0005) { return t; }
-        t += abs(d);
+        if (d > -0.001) { return t; }  // Relaxed threshold
+        t += abs(d) * 0.95;  // Slight over-stepping
         if (t > radius * 4.0) { break; }
     }
     return t;

@@ -266,8 +266,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     var coord = position.xz / (pool_size * 2.0) + 0.5;
     var info = textureSample(water_texture, water_sampler, coord);
-    for (var i = 0; i < 5; i++) {
-        coord += info.ba * 0.005;
+    for (var i = 0; i < 2; i++) {
+        coord += info.ba * 0.008;  // Slightly stronger offset to compensate for fewer iterations
         info = textureSample(water_texture, water_sampler, coord);
     }
     let normal = vec3<f32>(info.b, sqrt(1.0 - dot(info.ba, info.ba)), info.a);

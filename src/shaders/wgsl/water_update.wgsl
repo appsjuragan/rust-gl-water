@@ -37,19 +37,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     
     let u = info.r;
     
-    // 9-point Laplacian for better isotropic propagation
+    // 5-point Laplacian - optimized for GPU performance (45% fewer texture samples)
     let u_r = textureSample(input_texture, texture_sampler, in.uv + dx).r;
     let u_l = textureSample(input_texture, texture_sampler, in.uv - dx).r;
     let u_u = textureSample(input_texture, texture_sampler, in.uv + dy).r;
     let u_d = textureSample(input_texture, texture_sampler, in.uv - dy).r;
     
-    let u_ur = textureSample(input_texture, texture_sampler, in.uv + dx + dy).r;
-    let u_ul = textureSample(input_texture, texture_sampler, in.uv - dx + dy).r;
-    let u_dr = textureSample(input_texture, texture_sampler, in.uv + dx - dy).r;
-    let u_dl = textureSample(input_texture, texture_sampler, in.uv - dx - dy).r;
-    
-    // Weights: 0.2 for direct neighbors, 0.05 for diagonals
-    let laplacian = (u_r + u_l + u_u + u_d) * 0.2 + (u_ur + u_ul + u_dr + u_dl) * 0.05 - u;
+    // Standard 5-point stencil with adjusted weight for stable propagation
+    let laplacian = (u_r + u_l + u_u + u_d - 4.0 * u) * 0.25;
     
     // Wave equation update - balanced for stability and speed
     // info.g is velocity, info.r is height

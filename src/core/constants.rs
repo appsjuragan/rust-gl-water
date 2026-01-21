@@ -33,6 +33,6 @@ pub const FRICTION: f32 = 0.4;
 
 // Rendering
 pub const WATER_TEXTURE_SIZE: u32 = 512;
-pub const CAUSTICS_TEXTURE_SIZE: u32 = 512;
+pub const CAUSTICS_TEXTURE_SIZE: u32 = 256;  // Reduced from 512 for GPU optimization
 pub const DEFAULT_LIGHT_DIR: [f32; 3] = [-1.0, 1.0, 1.0];
 pub const DEFAULT_LIGHT_COLOR: [f32; 3] = [1.0, 1.0, 1.0];
